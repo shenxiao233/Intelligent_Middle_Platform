@@ -1,7 +1,15 @@
-/* style.qss */
-QMainWindow { background-color: #F0F4F7; }
+/* style.qss - 请确保文件以 UTF-8 编码保存 */
 
-#SideBar { background-color: #2C3E50; }
+/* 明确指定 objectName 的写法 */
+QWidget#SideBar {
+    background-color: #2C3E50;
+    border: none;
+}
+
+/* 确保上一段的 } 已经完全闭合 */
+#SideBar {
+    background-color: #2C3E50;
+}
 
 .NavButton {
     background-color: transparent;
@@ -10,19 +18,20 @@ QMainWindow { background-color: #F0F4F7; }
     padding: 12px 20px;
     text-align: left;
     font-size: 10.5pt;
+    /* 修正：Qt 中 border-left 的简写有时解析不稳定，建议分开写 */
     border-left: 4px solid transparent;
 }
 
 .NavButton:hover {
     background-color: #34495E;
     color: white;
-    padding-left: 28px;
 }
 
+/* 使用自定义属性选择器 */
 .NavButton[active="true"] {
     background-color: #1A252F;
     color: #007AFF;
-    border-left-color: #007AFF;
+    border-left: 4px solid #007AFF;
     font-weight: bold;
 }
 
@@ -31,19 +40,16 @@ QMainWindow { background-color: #F0F4F7; }
     border-radius: 12px;
 }
 
-/* 状态栏整体背景 */
+/* 状态栏样式 */
 QStatusBar#ModernStatusBar {
-    background: #FFFFFF;
+    background-color: #FFFFFF;
     border-top: 1px solid #F0F0F0;
-    min-height: 36px;
 }
 
-/* 移除状态栏默认的把手 (Resize Handle) */
 QStatusBar::item {
     border: none;
 }
 
-/* 鼠标悬停在药丸上时轻微加深（交互细节） */
 QWidget#BadgeContainer:hover {
     background-color: rgba(0, 0, 0, 0.05);
 }
