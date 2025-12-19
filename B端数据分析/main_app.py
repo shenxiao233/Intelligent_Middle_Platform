@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QTextEdit # 新增导入
 import json # 新增导入
 from PySide6.QtWidgets import QScrollArea # 确保在您的导入列表中
 from PySide6.QtCore import Qt, Signal, QObject, Slot,QThreadPool
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QFont, QColor,QFontMetrics
 import os
 from data_worker import DataWorker
 from xlsx_to_csv_page import XlsxToCsvPage
@@ -373,6 +373,7 @@ class DropLineEdit(QLineEdit):
 # --- 2. 页面 UI 类 ---
 class WideTablePage(QWidget):
     PAGE_NAME = "宽表导出"
+    DESC = "将离散字段聚合为业务侧所需的高性能宽表"
 
     DEFAULT_PREFIX_DAILY = '有效商户明细_FY26'
     DEFAULT_PREFIX_BAODAN = '爆单综合看板'
@@ -748,6 +749,7 @@ class TaskInputCard(QFrame):
 
 class BatchExportPage(QWidget):
     PAGE_NAME = "批量数据导出"
+    DESC = "支持多维度、大批量数据的一键云端同步下载"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1349,6 +1351,7 @@ class BatchExportPage(QWidget):
 class CrawlerPage(QWidget):
     # 页面名称，方便在主窗口中识别
     PAGE_NAME = "风神离职数据"
+    DESC = "自动化获取骑手离职历史记录详情并导出"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1799,6 +1802,7 @@ class FadeStackedWidget(QStackedWidget):
 
 class MergePage(QWidget):
     PAGE_NAME = "B端数据处理"
+    DESC = "智能合并商户明细与商智核本地CSV报表"
     pass_index_to_main = Signal(int)
 
     def __init__(self, parent=None):
@@ -2012,219 +2016,134 @@ class MergePage(QWidget):
         QMessageBox.critical(self, "处理失败", error_msg)
 
 
-# --- 2. 欢迎页面 (HomePage) ---
+class ElideLabel(QLabel):
+    """支持单行省略的标签，彻底解决背景阴影块问题"""
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self._full_text = text
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def set_text_raw(self, text):
+        self._full_text = text
+        self.update_elide()
+
+    def update_elide(self):
+        # 核心：根据当前标签宽度计算省略文本
+        fm = QFontMetrics(self.font())
+        elided = fm.elidedText(self._full_text, Qt.ElideRight, self.width())
+        super().setText(elided)
+
+    def resizeEvent(self, event):
+        self.update_elide()
+        super().resizeEvent(event)
+
+
+class CompactCard(QFrame):
+    clicked = Signal()
+
+    def __init__(self, title, desc, icon_name, accent_color, parent=None):
+        super().__init__(parent)
+        self.setObjectName("CompactCard")
+        self.accent_color = accent_color
+        self.setFixedSize(280, 100)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(8)
+
+        # 标题行
+        title_layout = QHBoxLayout()
+        title_layout.setSpacing(10)
+        self.icon_label = QLabel()
+        self.icon_label.setPixmap(qta.icon(icon_name, color=accent_color).pixmap(20, 20))
+        self.icon_label.setStyleSheet("background: transparent;")
+
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-size: 11pt; font-weight: 600; color: #1D1D1F; background: transparent;")
+
+        title_layout.addWidget(self.icon_label)
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+
+        # 描述行
+        self.desc_label = ElideLabel(desc)
+        self.desc_label.setStyleSheet("font-size: 9pt; color: #86868B; background: transparent;")
+
+        layout.addLayout(title_layout)
+        layout.addWidget(self.desc_label)
+        layout.addStretch()
+        self._set_style(False)
+
+    def _set_style(self, hovered: bool):
+        border_color = self.accent_color if hovered else "#E5E5E7"
+        bg_color = "#FBFBFD" if hovered else "#FFFFFF"
+        self.setStyleSheet(
+            f"#CompactCard {{ background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 10px; }}")
+
+    def enterEvent(self, event): self._set_style(True)
+
+    def leaveEvent(self, event): self._set_style(False)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton: self.clicked.emit()
+
+
 class HomePage(QWidget):
     PAGE_NAME = "首页"
-    # 新增信号：用于通知 MainWindow 切换到指定名称的页面
     navigate_to_page = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.main_window = parent  # 必须在 MainWindow 实例化时传入 self
         self._setup_ui()
-        self.apply_styles()
-
-    def apply_styles(self):
-        # 统一的 Apple 风格配色方案
-        BG_COLOR = "#F5F5F7"  # 窗口大背景 (高级灰)
-        CARD_COLOR = "#FFFFFF"  # 卡片纯白
-        TEXT_PRIMARY = "#1D1D1F"  # 主要文字色 (接近黑)
-        TEXT_SECONDARY = "#86868B"  # 次要文字色 (柔和灰)
-        ACCENT_BLUE = "#0071E3"  # 爬取卡片标题色 (系统蓝)
-        ACCENT_GREEN = "#34C759"  # 合并卡片标题色 (系统绿)
-        HOVER_COLOR = "#FAFAFA"  # 柔和的悬停背景色
-
-        self.setStyleSheet(f"""
-            /* --- 1. 全局基础样式 --- */
-            QWidget {{ 
-                background-color: {BG_COLOR}; 
-                font-family: "SF Pro Text", "Helvetica Neue", "Microsoft YaHei", sans-serif;
-                color: {TEXT_PRIMARY};
-            }}
-
-            /* --- 2. 【关键修复】强制所有 QLabel 背景透明 --- */
-            QLabel {{
-                background-color: transparent;
-                /* 确保所有标签文字颜色基于上下文，这里使用默认 PRIMARY */
-                color: {TEXT_PRIMARY};
-            }}
-
-            /* --- 3. 欢迎标题和描述 --- */
-            #WelcomeTitle {{ 
-                color: {TEXT_PRIMARY}; 
-                font-size: 30pt; /* 略微缩小，更优雅 */
-                font-weight: 600; /* Semibold */
-                padding-bottom: 10px;
-            }}
-            #AppDesc {{ 
-                color: {TEXT_SECONDARY}; 
-                font-size: 12pt; 
-                margin-bottom: 40px; 
-            }}
-
-            /* ==================================== */
-            /* 优化的卡片按钮样式 (.FeatureButton) */
-            /* ==================================== */
-            .FeatureButton {{
-                background-color: {CARD_COLOR}; /* 纯白背景 */
-                border-radius: 16px; /* 增大圆角，更柔和 */
-                padding: 30px; /* 增大内边距，增加呼吸感 */
-                text-align: left;
-                border: none; /* 移除边框 */
-
-                /* 阴影效果：模仿 Apple UI 的柔和投影 */
-                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04); 
-            }}
-
-            .FeatureButton:hover {{
-                background-color: {HOVER_COLOR}; 
-                /* 悬停时阴影加重，模拟抬升 */
-                box-shadow: 0 12px 35px rgba(0, 0, 0, 0.08); 
-            }}
-
-            .FeatureButton:pressed {{
-                background-color: #EFEFEF;
-                box-shadow: none; /* 按下时移除阴影，模拟下沉 */
-            }}
-
-            /* --- 标题和描述文字 --- */
-
-            /* 爬取卡片标题 (蓝色) */
-            #FeatureTitle_Crawler {{ 
-                color: {ACCENT_BLUE}; 
-                font-size: 16pt; 
-                font-weight: 600; /* Semibold */
-                /* 注意：这里移除了 !important */
-            }}
-
-            /* 合并卡片标题 (绿色) */
-            #FeatureTitle_Merge {{ 
-                color: {ACCENT_GREEN}; 
-                font-size: 16pt; 
-                font-weight: 600;
-                /* 注意：这里移除了 !important */
-            }}
-
-            /* 描述文字 (统一深色) */
-            .FeatureDesc {{
-                color: {TEXT_SECONDARY}; /* 使用次要文字色，不使用 !important */
-                font-size: 10pt;
-            }}
-        """)
 
     def _setup_ui(self):
+        self.setStyleSheet("background-color: #F5F5F7;")
         main_layout = QVBoxLayout(self)
-        # 增大外围留白，更像网页
-        main_layout.setContentsMargins(100, 80, 100, 80)
-        main_layout.setSpacing(60)  # 增大间距
+        main_layout.setContentsMargins(50, 40, 50, 40)
+        main_layout.setSpacing(30)
 
-        # 欢迎信息
-        welcome_layout = QVBoxLayout()
-        welcome_layout.setSpacing(10)  # 标题和描述的间距
+        header = QVBoxLayout()
+        title = QLabel("工作台")
+        title.setStyleSheet("font-size: 24pt; font-weight: 700; color: #1D1D1F; background: transparent;")
+        subtitle = QLabel("选择下方工具卡片快速启动任务")
+        subtitle.setStyleSheet("font-size: 10pt; color: #86868B; background: transparent;")
+        header.addWidget(title)
+        header.addWidget(subtitle)
+        main_layout.addLayout(header)
 
-        title = QLabel("欢迎使用自动化工具箱")
-        title.setObjectName("WelcomeTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        welcome_layout.addWidget(title)
+        grid_container = QWidget()
+        grid_container.setStyleSheet("background: transparent;")
+        self.grid_layout = QGridLayout(grid_container)
+        self.grid_layout.setSpacing(20)
+        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        desc = QLabel("本工具集成数据爬取与本地处理功能，助您高效完成日常数据工作。")
-        desc.setObjectName("AppDesc")
-        desc.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        welcome_layout.addWidget(desc)
+        # 自动生成逻辑
+        if self.main_window and hasattr(self.main_window, 'page_config'):
+            card_index = 0
+            colors = ["#007AFF", "#34C759", "#5856D6", "#FF9500", "#FF2D55", "#AF52DE"]
 
-        main_layout.addLayout(welcome_layout)
+            for conf in self.main_window.page_config:
+                name = conf["name"]
+                if name in ["首页", "设置"]: continue
 
-        # 功能介绍
-        features_layout = QHBoxLayout()
-        features_layout.setSpacing(30)  # 卡片之间的间距增大
+                # 【修复 1】安全读取 DESC
+                desc = getattr(conf["class"], "DESC", f"执行{name}相关自动化操作")
 
-        # 保持原始逻辑，但假设 CrawlerPage 和 MergePage 已定义
-        # (如果您在 PyCharm/VSC 编辑器中，需要确保这两个类已导入)
-        class CrawlerPage: PAGE_NAME = "风神离职数据"
+                card = CompactCard(name, desc, conf["icon"], colors[card_index % len(colors)])
 
-        class MergePage: PAGE_NAME = "B端数据处理"
+                # 【修复 2关键】使用默认参数绑定当前变量，解决跳转失效问题
+                card.clicked.connect(lambda target=name: self.navigate_to_page.emit(target))
 
-        crawler_page_name = CrawlerPage.PAGE_NAME
-        features_layout.addWidget(self._create_feature_card(
-            "💻 数据爬取与导出",
-            "一键获取风神骑手离职历史。",
-            # color 参数不再用于QSS，但保留函数签名，以兼容旧的调用
-            "#007AFF",
-            target_page=crawler_page_name
-        ))
+                self.grid_layout.addWidget(card, card_index // 3, card_index % 3)
+                card_index += 1
 
-        merge_page_name = MergePage.PAGE_NAME
-        features_layout.addWidget(self._create_feature_card(
-            "🗂️ 本地文件处理",
-            "轻松合并【有效商户明细】和【商智核/超抢手】两份 CSV 文件。",
-            # color 参数不再用于QSS，但保留函数签名，以兼容旧的调用
-            "#34C759",
-            target_page=merge_page_name
-        ))
-
-        main_layout.addLayout(features_layout)
+        main_layout.addWidget(grid_container)
         main_layout.addStretch()
 
-    def _create_feature_card(self, title: str, description: str, color: str, target_page: str) -> QWidget:
-        # 使用 QPushButton 来实现卡片的点击效果
-        button = QPushButton()
-        button.setObjectName("FeatureButton")
-        # 移除默认的按钮边框
-        button.setFlat(True)
-        button.setCursor(Qt.CursorShape.PointingHandCursor)  # 增加指针
-        # 设置SizePolicy使其可以横向扩展
-        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        # 点击后发送信号，携带目标页面的名称
-        button.clicked.connect(lambda: self.navigate_to_page.emit(target_page))
-
-        # 将卡片内容布局放在按钮内部
-        layout = QVBoxLayout(button)
-        layout.setSpacing(8)  # 略微减小标题和描述的间距，让它们看起来更像一组
-
-        # 标题标签
-        title_label = QLabel(title)
-
-        # 💡 保持原始逻辑：根据目标页面设置独特的ID
-        # 假设这两个类已定义
-        class CrawlerPage:
-            PAGE_NAME = "数据爬取与导出"
-
-        class MergePage:
-            PAGE_NAME = "本地文件处理"
-
-        if target_page == CrawlerPage.PAGE_NAME:
-            title_label.setObjectName("FeatureTitle_Crawler")
-        elif target_page == MergePage.PAGE_NAME:
-            title_label.setObjectName("FeatureTitle_Merge")
-        else:
-            title_label.setObjectName("FeatureTitle_Default")
-
-        layout.addWidget(title_label)
-
-        # 描述标签
-        desc_label = QLabel(description)
-        desc_label.setObjectName("FeatureDesc")  # 使用通用的类选择器
-        desc_label.setWordWrap(True)
-        layout.addWidget(desc_label)
-
-        # 必须将 layout 设置到按钮上
-        button.setLayout(layout)
-        return button
-
 # --- 5. 主窗口：使用侧边栏布局 (MainWindow) ---
-
-import sys
-import os
-import threading
-import requests
-from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QStackedWidget, QGraphicsDropShadowEffect, QSystemTrayIcon,
-    QMenu, QApplication, QStatusBar, QLabel
-)
-from PySide6.QtGui import QColor, QAction
-from PySide6.QtCore import Qt, Slot, QEvent, QSize, QTimer
-import qtawesome as qta
-
 
 class MainWindow(QMainWindow):
     # 【核心 1】定义信号，必须定义在类属性中（__init__ 之外）
@@ -2232,8 +2151,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("数据自动化工具箱 v2.0")
-        self.resize(1000, 720)
+        self.setWindowTitle("Intelligent Middle Platform v2.0")
+        self.resize(1250, 750)
         self.setMinimumSize(950, 650)
 
         self.buttons = []
@@ -2300,14 +2219,24 @@ class MainWindow(QMainWindow):
         self.content_outer_wrapper.addWidget(self.content_container)
 
         for i, conf in enumerate(self.page_config):
+            # --- 【核心修改 1】实例化时传入 self ---
+            # 这样 HomePage 内部可以通过 self.main_window 访问到 page_config
             page_inst = conf["class"](self)
+
+            # --- 【核心修改 2】连接首页的跳转信号 ---
+            # 检查页面实例是否有 navigate_to_page 信号 (通常只有 HomePage 有)
+            if hasattr(page_inst, 'navigate_to_page'):
+                page_inst.navigate_to_page.connect(self.navigate_to_page_by_name)
+
             index = self.stacked_widget.addWidget(page_inst)
             self.page_names_to_index[conf["name"]] = index
 
+            # --- 侧边栏导航按钮保持原样 ---
             btn = QPushButton(f"  {conf['name']}")
             btn.setIcon(qta.icon(conf["icon"], color='#BDC3C7', color_active='#007AFF'))
             btn.setIconSize(QSize(18, 18))
             btn.setProperty("class", "NavButton")
+            # 闭包安全写法推荐：idx=index
             btn.clicked.connect(lambda checked, idx=index: self.switch_page(idx))
 
             self.nav_layout.addWidget(btn)

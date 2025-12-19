@@ -189,6 +189,7 @@ class ConversionThread(QThread):
 # --- 4. 页面 UI 类 (修复阴影补丁版) ---
 class XlsxToCsvPage(QWidget):
     PAGE_NAME = "CSV极速导出"
+    DESC = "基于底层引擎的高性能大文件格式转换与导出"
 
     def __init__(self, parent=None):
         super().__init__(parent)
