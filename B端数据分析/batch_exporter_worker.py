@@ -265,119 +265,82 @@ class BatchExporterWorker(QObject):
             cookies_dict: Dict[str, str],
             is_direct_download: bool = False
     ):
-        """执行通用的导出请求，并处理下载链接或直接写入文件。"""
+        """执行通用的导出请求，并根据返回内容自动判断文件格式 (.xlsx 或 .csv)"""
         if not self.is_running:
             return
-        response = None
+
         self._last_file_name = ""  # 执行前重置文件名
+        headers = HEADERS.copy()  # 使用通用的 Headers 配置
 
         try:
-            # 构建请求头（只包含非Cookie的通用头）
-            headers = HEADERS.copy()
-            # ⚠️ 移除将 Cookie 字段放入 headers 的逻辑，使用 requests 的 cookies 参数
-
-            # --- 情况 A: 直接返回文件流 (骑手每日详情) ---
+            # --- 情况 A: 直接返回文件流 (如：骑手每日详情) ---
             if is_direct_download:
                 response = requests.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                    stream=True,
-                    timeout=30,
-                    # ✅ 修正 401 错误的关键：通过 cookies 参数传递
-                    cookies=cookies_dict
+                    url, headers=headers, json=payload, stream=True, timeout=30, cookies=cookies_dict
                 )
                 response.raise_for_status()
 
-                # 检查Content-Type判断是否为文件
-                content_type = response.headers.get('Content-Type', '')
+                # 检查是否真的返回了文件，还是返回了报错的 JSON
+                content_type = response.headers.get('Content-Type', '').lower()
                 if 'application/json' in content_type:
-                    # 可能是错误响应，通常是 401/403 的 JSON 错误提示
                     result = response.json()
-                    error_msg = f"❌ {job_name} 业务处理失败。响应代码: {response.status_code}，消息: {result.get('msg', '未知错误')}"
-                    self.error_occurred.emit(error_msg)
-                    self.has_batch_failed = True
-                    return
+                    raise Exception(f"业务处理失败: {result.get('msg', '未知错误')}")
 
-                # 生成文件名并保存文件
-                filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                # 动态判断后缀：优先从 Content-Disposition 获取，否则根据 Content-Type 判断
+                ext = ".xlsx"
+                if "csv" in content_type:
+                    ext = ".csv"
+
+                filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
                 output_path = os.path.join(self.output_dir, filename)
 
+                # 流式写入文件
                 with open(output_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         if not self.is_running:
-                            if os.path.exists(output_path):
-                                os.remove(output_path)
+                            if os.path.exists(output_path): os.remove(output_path)
                             return
-                        if chunk:
-                            f.write(chunk)
-
-                # 检查文件大小
-                file_size = os.path.getsize(output_path)
-                if file_size < 1024 and file_size > 0:
-                    raise Exception(f"文件大小异常 ({file_size} bytes)，可能下载失败或内容为空。")
-                elif file_size == 0:
-                    raise Exception(f"文件大小为 0 字节。")
+                        if chunk: f.write(chunk)
 
                 self._last_file_name = filename
                 self.progress_update.emit(self.total_tasks, f"✅ {job_name} 下载成功：{filename}")
                 return
 
-            # --- 情况 B: 返回 JSON 包含下载链接 (违规、排班、考勤) ---
+            # --- 情况 B: 返回 JSON 包含下载链接 (如：违规、排班、考勤) ---
             response = requests.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=30,
-                # ✅ 修正 401 错误的关键：通过 cookies 参数传递
-                cookies=cookies_dict
+                url, headers=headers, json=payload, timeout=30, cookies=cookies_dict
             )
             response.raise_for_status()
-
             result = response.json()
-            download_url = None
 
-            # 根据实际API响应结构调整解析逻辑
+            download_url = None
             if result.get('code') == 200:
-                # 您的解析逻辑保持不变
-                if 'result' in result and 'data' in result['result']:
-                    data = result['result']['data']
-                    download_url = data.get('fileUrl') or data.get('url')
-                elif 'data' in result:
-                    data = result['data']
-                    download_url = data.get('fileUrl') or data.get('url')
+                # 兼容不同的返回结构
+                data = result.get('result', {}).get('data', {}) or result.get('data', {})
+                download_url = data.get('fileUrl') or data.get('url')
 
             if download_url:
-                filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                # 关键：检查下载是否成功
+                # 💡 核心改进：根据下载链接自动识别后缀名
+                # 如果链接里包含 .csv（忽略大小写），则使用 .csv 后缀
+                ext = ".csv" if ".csv" in download_url.lower() else ".xlsx"
+                filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+
+                # 调用下载辅助函数
                 if not self._download_file_from_url(download_url, job_name, filename):
                     self._last_file_name = ""
                     return
             else:
-                error_msg = f"❌ {job_name} 业务处理失败或未找到下载链接。响应代码: {result.get('code')}, 消息: {result.get('msg', '无错误消息')}"
+                error_msg = f"❌ {job_name} 接口未返回下载链接。消息: {result.get('msg', '无')}"
                 self.error_occurred.emit(error_msg)
                 self.has_batch_failed = True
 
         except requests.exceptions.HTTPError as e:
-            # 捕获所有 HTTP 错误（4xx, 5xx, 超时等）
-            status_code = response.status_code if response is not None and hasattr(response, 'status_code') else 'N/A'
-            # 特别处理 401 提示
-            if status_code == 401:
-                error_msg = f"❌ {job_name} 请求失败 (状态码: 401 Unauthorized)。原因：**Cookie可能已过期或无效**。请在设置页更新Cookie。"
-            else:
-                error_msg = f"❌ {job_name} 请求失败 (状态码: {status_code}, 错误: {e})"
-
-            self.error_occurred.emit(error_msg)
-            self.has_batch_failed = True
-        except json.JSONDecodeError:
-            # 捕获 JSON 解析错误
-            error_msg = f"❌ {job_name} 响应解析失败，请检查 Cookie 有效性或 API 返回的格式。响应内容: {response.text[:200] if response else '无响应'}"
-            self.error_occurred.emit(error_msg)
+            status_code = response.status_code if response is not None else 'N/A'
+            msg = "Cookie可能已过期" if status_code == 401 else str(e)
+            self.error_occurred.emit(f"❌ {job_name} 网络错误 ({status_code}): {msg}")
             self.has_batch_failed = True
         except Exception as e:
-            # 捕获其他未知错误
-            error_msg = f"❌ {job_name} 发生未知错误: {e.__class__.__name__}: {e}"
-            self.error_occurred.emit(error_msg)
+            self.error_occurred.emit(f"❌ {job_name} 运行异常: {str(e)}")
             self.has_batch_failed = True
 
     # -------------------------------------------------------------------

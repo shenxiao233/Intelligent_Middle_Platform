@@ -1,0 +1,49 @@
+/* style.qss */
+QMainWindow { background-color: #F0F4F7; }
+
+#SideBar { background-color: #2C3E50; }
+
+.NavButton {
+    background-color: transparent;
+    color: #BDC3C7;
+    border: none;
+    padding: 12px 20px;
+    text-align: left;
+    font-size: 10.5pt;
+    border-left: 4px solid transparent;
+}
+
+.NavButton:hover {
+    background-color: #34495E;
+    color: white;
+    padding-left: 28px;
+}
+
+.NavButton[active="true"] {
+    background-color: #1A252F;
+    color: #007AFF;
+    border-left-color: #007AFF;
+    font-weight: bold;
+}
+
+#ContentCanvas {
+    background-color: white;
+    border-radius: 12px;
+}
+
+/* 状态栏整体背景 */
+QStatusBar#ModernStatusBar {
+    background: #FFFFFF;
+    border-top: 1px solid #F0F0F0;
+    min-height: 36px;
+}
+
+/* 移除状态栏默认的把手 (Resize Handle) */
+QStatusBar::item {
+    border: none;
+}
+
+/* 鼠标悬停在药丸上时轻微加深（交互细节） */
+QWidget#BadgeContainer:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}

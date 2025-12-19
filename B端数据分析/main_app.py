@@ -2,15 +2,17 @@ import sys
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional
+import qtawesome as qta
+import threading
+import requests
 from PySide6.QtWidgets import (
     QApplication, QMainWindow,QFrame,QGraphicsDropShadowEffect, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QGridLayout,QPushButton, QMessageBox, QFileDialog, QSizePolicy,
-    QStackedWidget, QGraphicsOpacityEffect,QSpacerItem,QDateEdit,
-    QProgressBar,QGroupBox
+    QStackedWidget, QGraphicsOpacityEffect,QSystemTrayIcon,QDateEdit,QMenu,
+    QProgressBar,QStatusBar
 )
-from PySide6.QtGui import QFont, QColor, QIcon
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QSize,QDate,QThread
-from PySide6.QtCore import QSettings, QObject
+from PySide6.QtCore import QSettings, QEvent,QTimer
 from PySide6.QtWidgets import QTextEdit # 新增导入
 import json # 新增导入
 from PySide6.QtWidgets import QScrollArea # 确保在您的导入列表中
@@ -2208,315 +2210,249 @@ class HomePage(QWidget):
         button.setLayout(layout)
         return button
 
-        # 描述标签
-        desc_label = QLabel(description)
-        desc_label.setObjectName("FeatureDesc")  # 使用通用的类选择器
-        desc_label.setWordWrap(True)
-        layout.addWidget(desc_label)
-
-        # 必须将 layout 设置到按钮上
-        button.setLayout(layout)
-        return button
-
-#
-# # --- 3. 侧边栏 (SidebarWidget) ---
-#
-# class SidebarWidget(QWidget):
-#     page_switched = Signal(int)
-#
-#     def __init__(self, parent=None):
-#         super().__init__(parent)
-#
-#         self.current_button = None
-#
-#         self.setFixedWidth(60)
-#         self._setup_ui()
-#         self.apply_styles()
-#
-#     def apply_styles(self):
-#         """优化侧边栏样式，增加活动指示条和悬停效果，并移除点击时的默认效果"""
-#         SIDEBAR_BG = "#2C3E50"  # 深蓝色背景
-#         HOVER_BG = "#3A5168"  # 悬停颜色
-#         ACTIVE_COLOR = "#1ABC9C"  # 绿色活动指示条
-#
-#         self.setStyleSheet(f"""
-#             QWidget {{
-#                 background-color: {SIDEBAR_BG};
-#             }}
-#             /* 导航按钮的基样式 */
-#             #SidebarButton {{
-#                 border: none;
-#                 background-color: transparent;
-#                 padding: 10px 0;
-#                 margin: 5px 0;
-#                 color: #ECF0F1;
-#                 transition: background-color 0.2s, border-left 0.2s; /* 增加平滑过渡 */
-#             }}
-#             #SidebarButton QIcon {{
-#                 color: #ECF0F1;
-#                 qproperty-iconSize: 24px;
-#             }}
-#
-#             /* 悬停效果：改变背景色 */
-#             #SidebarButton:hover {{
-#                 background-color: {HOVER_BG};
-#             }}
-#
-#             /* 按下效果：移除默认的按下阴影/边框，保持悬停色或透明 */
-#             #SidebarButton:pressed {{
-#                 background-color: {HOVER_BG}; /* 点击时不改变颜色，保持与悬停色一致 */
-#                 border: none; /* 移除点击时可能出现的默认边框 */
-#                 padding: 10px 0; /* 保持padding，防止“下沉”效果 */
-#             }}
-#
-#             /* 活动/选中效果：改变背景色并添加左侧指示条 */
-#             #SidebarButton[active="true"] {{
-#                 border-left: 4px solid {ACTIVE_COLOR}; /* 关键：左侧指示条 */
-#
-#             }}
-#
-#             /* 菜单和设置按钮 (非导航按钮) */
-#             QPushButton#SidebarButton:!checkable {{
-#                 /* 确保菜单和设置按钮不被 active 状态影响 */
-#                 border-left: none;
-#                 padding-left: 0;
-#             }}
-#         """)
-#
-#     def _setup_ui(self):
-#         layout = QVBoxLayout(self)
-#         layout.setContentsMargins(0, 10, 0, 10)
-#         layout.setSpacing(5)
-#         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignCenter)
-#
-#         # --- 菜单图标 (假设，图片中的三条线) ---
-#         btn_menu = QPushButton(QIcon("./icons/单据.png"), "")
-#         btn_menu.setObjectName("SidebarButton")
-#         btn_menu.setIconSize(QSize(24, 24))
-#         layout.addWidget(btn_menu)
-#         layout.addWidget(self.create_separator(1))
-#
-#         # --- 导航按钮 ---
-#
-#         # 1. 主页按钮 (索引 0)
-#         self.btn_home = self._create_nav_button("./icons/仓库.png", 0)
-#         layout.addWidget(self.btn_home)
-#
-#         # 2. 合并功能按钮 (索引 1)
-#         self.btn_merge = self._create_nav_button("./icons/看板.png", 1)
-#         layout.addWidget(self.btn_merge)
-#
-#         # 3. 占位符按钮 (索引 2)
-#         self.btn_placeholder = self._create_nav_button("./icons/指标.png", 2)
-#         layout.addWidget(self.btn_placeholder)
-#
-#         self.btn_placeholder = self._create_nav_button("./icons/云爬虫.png", 4)
-#         layout.addWidget(self.btn_placeholder)
-#
-#         layout.addStretch()
-#         layout.addWidget(self.create_separator(2))
-#
-#         # --- 底部设置按钮 (模拟图片中的齿轮) ---
-#         # btn_settings = QPushButton(QIcon("./icons/设置_管理.png"), "")
-#         self.btn_placeholder = self._create_nav_button("./icons/设置_管理.png", 3)
-#         layout.addWidget(self.btn_placeholder)
-#
-#
-#
-#         # btn_settings.setObjectName("SidebarButton")
-#         # btn_settings.setIconSize(QSize(24, 24))
-#         # layout.addWidget(btn_settings)
-#
-#         # 初始设置选中状态
-#         self.set_active_button(self.btn_home)
-    # def _create_nav_button(self, icon_path, index):
-    #     """创建并连接导航按钮"""
-    #     button = QPushButton(QIcon(icon_path), "")
-    #     button.setObjectName("SidebarButton")
-    #     button.setIconSize(QSize(24, 24))
-    #     button.setCheckable(True)
-    #     button.clicked.connect(lambda: self.on_nav_clicked(button, index))
-    #     return button
-    #
-    # def create_separator(self, height):
-    #     line = QLabel()
-    #     line.setFixedHeight(height)
-    #     line.setStyleSheet("background-color: #4A6075;")
-    #     return line
-    #
-    # def on_nav_clicked(self, clicked_button, index):
-    #     """处理导航按钮点击事件"""
-    #     self.set_active_button(clicked_button)
-    #     self.page_switched.emit(index)
-    #
-    # def set_active_button(self, button):
-    #     """设置按钮的活动状态并清除前一个按钮的状态"""
-    #     if self.current_button and self.current_button != button:
-    #         self.current_button.setProperty("active", "false")
-    #         self.current_button.style().polish(self.current_button)  # 强制刷新样式
-    #
-    #     button.setProperty("active", "true")
-    #     button.style().polish(button)  # 强制刷新样式
-    #     self.current_button = button
-
-
 # --- 5. 主窗口：使用侧边栏布局 (MainWindow) ---
 
+import sys
+import os
+import threading
+import requests
+from PySide6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QStackedWidget, QGraphicsDropShadowEffect, QSystemTrayIcon,
+    QMenu, QApplication, QStatusBar, QLabel
+)
+from PySide6.QtGui import QColor, QAction
+from PySide6.QtCore import Qt, Slot, QEvent, QSize, QTimer
+import qtawesome as qta
+
+
 class MainWindow(QMainWindow):
+    # 【核心 1】定义信号，必须定义在类属性中（__init__ 之外）
+    sig_status_update = Signal(str, str)
+
     def __init__(self):
         super().__init__()
-        # 1. 设置图标路径
-        # 注意：建议使用 .ico 文件以获得最佳兼容性
-        icon_path = "./icons/图标.png"
+        self.setWindowTitle("数据自动化工具箱 v2.0")
+        self.resize(1000, 720)
+        self.setMinimumSize(950, 650)
 
-        # 2. 设置窗口标题和尺寸
-        self.setWindowTitle("数据自动化工具箱 v1.0")
-        self.setMinimumSize(1000, 700)
+        self.buttons = []
+        self.page_names_to_index = {}
 
-        # 3. 设置窗口图标 (新增步骤)
-        # 必须在 self.apply_styles() 之前或之后调用
-        self.setWindowIcon(QIcon(icon_path))
+        # 页面配置
+        self.page_config = [
+            {"name": "首页", "icon": "fa5s.home", "class": HomePage},
+            {"name": "风神离职数据", "icon": "fa5s.user-minus", "class": CrawlerPage},
+            {"name": "批量数据导出", "icon": "fa5s.cloud-download-alt", "class": BatchExportPage},
+            {"name": "B端数据处理", "icon": "fa5s.project-diagram", "class": MergePage},
+            {"name": "宽表导出", "icon": "fa5s.th-list", "class": WideTablePage},
+            {"name": "CSV极速导出", "icon": "fa5s.file-excel", "class": XlsxToCsvPage},
+            {"name": "设置", "icon": "fa5s.cog", "class": SettingsPage},
+        ]
 
-        # 4. 应用样式
-        self.apply_styles()
-
-        # 5. 设置 UI 结构 (页面切换器和导航)
         self._setup_ui()
+        self._setup_tray()
+        self._init_status_bar()
+        self.apply_external_style()
 
-    def apply_styles(self):
-        # 统一的配色方案
-        PRIMARY_COLOR = "#007AFF"
-        BACKGROUND_COLOR = "#F0F4F7"
+        # 【核心 2】连接信号到 UI 更新函数
+        self.sig_status_update.connect(self.update_cookie_status)
 
-        self.setStyleSheet(f"""
-            QMainWindow {{ background-color: {BACKGROUND_COLOR}; }}
+        # 启动后延迟检测
+        QTimer.singleShot(1000, self.check_cookie_realtime)
 
-            /* 侧边导航栏 */
-            #SideBar {{
-                background-color: #2C3E50; /* 深色背景 */
-                border-right: 1px solid #34495E;
-            }}
-
-            /* 导航按钮 */
-            .NavButton {{
-                background-color: transparent;
-                color: #ECF0F1; /* 浅色文本 */
-                border: none;
-                padding: 15px 15px;
-                text-align: left;
-                font-size: 11pt;
-                font-weight: 500;
-                border-left: 5px solid transparent;
-                transition: all 0.2s;
-            }}
-            .NavButton:hover {{
-                background-color: #34495E;
-                border-left-color: #5D6D7E;
-            }}
-            .NavButton.active {{
-                background-color: #34495E;
-                color: {PRIMARY_COLOR}; /* 选中高亮色 */
-                border-left-color: {PRIMARY_COLOR};
-                font-weight: bold;
-            }}
-        """)
+    def apply_external_style(self):
+        style_path = os.path.join(os.path.dirname(__file__), "style.qss")
+        if os.path.exists(style_path):
+            with open(style_path, "r", encoding="utf-8") as f:
+                self.setStyleSheet(f.read())
 
     def _setup_ui(self):
         central_widget = QWidget()
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        self.main_layout = QHBoxLayout(central_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
 
-        # 1. 侧边导航栏 (SideBar)
+        # 侧边栏
         self.sidebar = QWidget()
         self.sidebar.setObjectName("SideBar")
         self.sidebar.setFixedWidth(200)
         self.nav_layout = QVBoxLayout(self.sidebar)
-        self.nav_layout.setContentsMargins(0, 20, 0, 20)
-        self.nav_layout.setSpacing(5)
+        self.nav_layout.setContentsMargins(0, 15, 0, 15)
+        self.nav_layout.setSpacing(2)
 
-        # 2. 页面容器 (StackedWidget)
-        self.stacked_widget = FadeStackedWidget()
+        # 内容区
+        self.content_outer_wrapper = QVBoxLayout()
+        self.content_outer_wrapper.setContentsMargins(15, 15, 15, 15)
+        self.content_container = QWidget()
+        self.content_container.setObjectName("ContentCanvas")
+        self.container_inner_layout = QVBoxLayout(self.content_container)
+        self.container_inner_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 3. 页面列表 (顺序决定了导航顺序)
-        self.pages = {
-            HomePage.PAGE_NAME: HomePage(self),
-            CrawlerPage.PAGE_NAME: CrawlerPage(self),
-            BatchExportPage.PAGE_NAME: BatchExportPage(self),
-            MergePage.PAGE_NAME: MergePage(self),
-            WideTablePage.PAGE_NAME: WideTablePage(self),
-            XlsxToCsvPage.PAGE_NAME: XlsxToCsvPage(self),
-            SettingsPage.PAGE_NAME: SettingsPage(self)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 35))
+        shadow.setOffset(0, 4)
+        self.content_container.setGraphicsEffect(shadow)
 
-        }
+        self.stacked_widget = QStackedWidget()
+        self.container_inner_layout.addWidget(self.stacked_widget)
+        self.content_outer_wrapper.addWidget(self.content_container)
 
-        self.page_names_to_index: Dict[str, int] = {}  # 新增：用于快速查找页面索引
-        self.buttons: List[QPushButton] = []
+        for i, conf in enumerate(self.page_config):
+            page_inst = conf["class"](self)
+            index = self.stacked_widget.addWidget(page_inst)
+            self.page_names_to_index[conf["name"]] = index
 
-        for name, page in self.pages.items():
-            index = self.stacked_widget.addWidget(page)
-            self.page_names_to_index[name] = index  # 记录名称到索引的映射
-
-            # --- 关键修改：连接 HomePage 的信号 ---
-            if name == HomePage.PAGE_NAME:
-                page.navigate_to_page.connect(self.navigate_to_page_by_name)
-
-            # 创建导航按钮 (保持不变)
-            btn = QPushButton(name)
-            btn.setObjectName("NavButton")
-            btn.setProperty("page_index", index)
-            btn.clicked.connect(lambda checked, i=index, b=btn: self.switch_page(i, b))
+            btn = QPushButton(f"  {conf['name']}")
+            btn.setIcon(qta.icon(conf["icon"], color='#BDC3C7', color_active='#007AFF'))
+            btn.setIconSize(QSize(18, 18))
+            btn.setProperty("class", "NavButton")
+            btn.clicked.connect(lambda checked, idx=index: self.switch_page(idx))
 
             self.nav_layout.addWidget(btn)
             self.buttons.append(btn)
 
-        self.nav_layout.addStretch()  # 将按钮推到顶部
-
-        main_layout.addWidget(self.sidebar)
-        main_layout.addWidget(self.stacked_widget)
-
+        self.nav_layout.addStretch()
+        self.main_layout.addWidget(self.sidebar)
+        self.main_layout.addLayout(self.content_outer_wrapper)
         self.setCentralWidget(central_widget)
+        if self.buttons: self.switch_page(0)
 
-        # 初始显示第一个页面
-        self.switch_page(0, self.buttons[0])
+    def _init_status_bar(self):
+        """重新定义更现代的状态栏结构"""
+        self.status_bar = QStatusBar()
+        self.status_bar.setObjectName("ModernStatusBar")
+        self.setStatusBar(self.status_bar)
 
-    @Slot(int, QPushButton)
-    def switch_page(self, index, button):
-        """切换显示的页面 (通过索引)"""
+        # 移除状态栏自带的分割线
+        self.status_bar.setStyleSheet("QStatusBar::item { border: none; }")
+
+        # 1. 状态标签容器 (药丸)
+        self.badge_widget = QWidget()
+        self.badge_widget.setObjectName("BadgeContainer")
+        self.badge_layout = QHBoxLayout(self.badge_widget)
+        self.badge_layout.setContentsMargins(12, 3, 12, 3)  # 减小垂直外边距
+        self.badge_layout.setSpacing(6)
+
+        self.status_icon = QLabel()
+        self.status_text = QLabel("正在同步")
+        self.status_text.setStyleSheet("font-family: 'Segoe UI', 'PingFang SC'; font-weight: 500; font-size: 12px;")
+
+        self.badge_layout.addWidget(self.status_icon)
+        self.badge_layout.addWidget(self.status_text)
+
+        # 2. 辅助信息容器
+        self.info_label = QLabel("Eleme Automator v2.0")
+        self.info_label.setStyleSheet("color: #95A5A6; font-size: 11px; margin-right: 15px;")
+
+        # 组装到状态栏
+        self.status_bar.addWidget(self.badge_widget)
+        self.status_bar.addPermanentWidget(self.info_label)
+
+    @Slot(str, str)
+    def update_cookie_status(self, status: str, text: str):
+        """现代化的状态切换逻辑：更高级的配色方案"""
+        # 调色盘：使用了更高级的莫兰迪色系/淡色系
+        configs = {
+            "valid": {
+                "color": "#10B981", "bg": "rgba(16, 185, 129, 0.12)",
+                "border": "rgba(16, 185, 129, 0.3)", "icon": "fa5s.check-circle"
+            },
+            "invalid": {
+                "color": "#EF4444", "bg": "rgba(239, 68, 68, 0.12)",
+                "border": "rgba(239, 68, 68, 0.3)", "icon": "fa5s.times-circle"
+            },
+            "loading": {
+                "color": "#3B82F6", "bg": "rgba(59, 130, 246, 0.12)",
+                "border": "rgba(59, 130, 246, 0.3)", "icon": "fa5s.sync-alt"
+            },
+            "error": {
+                "color": "#F59E0B", "bg": "rgba(245, 158, 11, 0.12)",
+                "border": "rgba(245, 158, 11, 0.3)", "icon": "fa5s.exclamation-triangle"
+            }
+        }
+        cfg = configs.get(status, configs["error"])
+
+        # 更新图标（带抗锯齿感）
+        self.status_icon.setPixmap(qta.icon(cfg["icon"], color=cfg["color"]).pixmap(14, 14))
+        self.status_text.setText(text)
+        self.status_text.setStyleSheet(f"color: {cfg['color']}; background: transparent;")
+
+        # 更新容器外观：使用更现代的边框和背景混合
+        self.badge_widget.setStyleSheet(f"""
+            QWidget#BadgeContainer {{
+                background-color: {cfg['bg']};
+                border: 1px solid {cfg['border']};
+                border-radius: 14px;
+                margin: 4px 0px;
+            }}
+        """)
+
+        # 强制重绘
+        self.badge_widget.style().unpolish(self.badge_widget)
+        self.badge_widget.style().polish(self.badge_widget)
+
+    def check_cookie_realtime(self):
+        """骑手接口检测逻辑"""
+        # 发射加载中信号
+        self.sig_status_update.emit("loading", "正在检测")
+
+        def run_check():
+            try:
+                # 假设 SettingsPage 有 get_all_cookies 静态方法
+                cookies = SettingsPage.get_all_cookies()
+                url = "https://httpizza.ele.me/lpd.meepo.mgmt/knight/queryKnightDimissionRecords"
+                params = {'pageIndex': 1, 'pageSize': 20}
+
+                res = requests.get(url, params=params, cookies=cookies, timeout=5)
+
+                if res.status_code == 200:
+                    data = res.json()
+                    if str(data.get('code')) == '200':
+                        # 【核心 4】子线程中仅通过信号通知 UI
+                        self.sig_status_update.emit("valid", "已连接")
+                    else:
+                        self.sig_status_update.emit("invalid", "令牌失效")
+                else:
+                    self.sig_status_update.emit("invalid", f"错误 {res.status_code}")
+            except Exception as e:
+                print(f"Check Error Details: {e}")
+                self.sig_status_update.emit("error", "网络超时")
+
+        # 使用守护线程避免关闭窗口时卡死
+        threading.Thread(target=run_check, daemon=True).start()
+
+    def _setup_tray(self):
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(qta.icon('fa5s.toolbox', color='#2C3E50'))
+        menu = QMenu()
+        menu.addAction("还原窗口", self.showNormal)
+        menu.addAction("彻底退出", QApplication.instance().quit)
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.show()
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.WindowStateChange and self.windowState() & Qt.WindowMinimized:
+            self.hide()
+            event.accept()
+            return
+        super().changeEvent(event)
+
+    @Slot(int)
+    def switch_page(self, index):
         self.stacked_widget.setCurrentIndex(index)
-
-        # 更新按钮的激活状态样式
-        for btn in self.buttons:
-            btn.setProperty("class", "NavButton")
-            btn.style().polish(btn)  # 重新渲染样式
-
-        button.setProperty("class", "NavButton active")
-        button.style().polish(button)  # 重新渲染样式
+        for i, btn in enumerate(self.buttons):
+            btn.setProperty("active", i == index)
+            btn.style().polish(btn)
 
     @Slot(str)
-    def navigate_to_page_by_name(self, page_name: str):
-        """
-        通过页面名称进行导航。
-        此槽函数连接到 HomePage 发出的 navigate_to_page 信号。
-        """
-        if page_name in self.page_names_to_index:
-            index = self.page_names_to_index[page_name]
-
-            # 找到对应的导航按钮
-            target_button = next((btn for btn in self.buttons if btn.property("page_index") == index), None)
-
-            if target_button:
-                self.switch_page(index, target_button)
-            else:
-                print(f"Error: Could not find button for page index {index}.")
-        else:
-            print(f"Error: Page name '{page_name}' not found in map.")
+    def navigate_to_page_by_name(self, name):
+        if name in self.page_names_to_index:
+            self.switch_page(self.page_names_to_index[name])
 
 
-
-
-# --- 4. 应用程序启动 ---
-
+# --- 应用程序启动 ---
 if __name__ == "__main__":
     # 确保 QApplication 组织名和应用名设置在 QSettings 之前
     QApplication.setOrganizationName("YourCompanyName")

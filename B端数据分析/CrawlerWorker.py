@@ -22,7 +22,6 @@ class SignalHost(QObject):
 try:
     from __main__ import SettingsPage
 except ImportError:
-    # 仅为演示和测试，实际部署中应移除此块
     print("Warning: SettingsPage not found. Using placeholder SettingsPage.")
 
 
