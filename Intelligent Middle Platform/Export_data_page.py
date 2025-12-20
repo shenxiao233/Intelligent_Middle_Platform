@@ -3,20 +3,79 @@ from typing import Dict, List, Optional
 from PySide6.QtWidgets import (
     QFrame,QGraphicsDropShadowEffect, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QGridLayout,QPushButton, QMessageBox,QSizePolicy,QDateEdit,
-    QProgressBar
+    QProgressBar,QAbstractSpinBox
 )
 from PySide6.QtCore import QDate,QThread
 from PySide6.QtWidgets import QScrollArea # 确保在您的导入列表中
 from PySide6.QtCore import Qt, Signal, QObject, Slot
 from PySide6.QtGui import QColor
 import os
+from PySide6.QtWidgets import QMenu, QWidgetAction, QCalendarWidget, QGridLayout
 
+
+class CustomDateRangePicker(QPushButton):
+    """自定义双月日期范围选择按钮"""
+
+    def __init__(self, start_date, end_date, parent=None):
+        super().__init__(parent)
+        self.start_date = start_date
+        self.end_date = end_date
+        self.setObjectName("DateRangePickerTrigger")
+        self.update_text()
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clicked.connect(self.show_double_calendar)
+
+    def update_text(self):
+        # 将中间的箭头改为减号/分隔符，并调整为空格分隔
+        # 格式：2025-12-19 - 2025-12-19
+        self.setText(f"{self.start_date.toString('yyyy-MM-dd')}  -  {self.end_date.toString('yyyy-MM-dd')}")
+
+    def show_double_calendar(self):
+        menu = QMenu(self)
+        menu.setObjectName("CalendarMenu")
+        container = QWidget()
+        container.setStyleSheet("background: white; border-radius: 8px;")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(20)
+
+        cal_left = QCalendarWidget()
+        cal_right = QCalendarWidget()
+
+        # 配置日历样式：隐藏周数，保持整洁
+        for cal in [cal_left, cal_right]:
+            cal.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+            cal.setGridVisible(False)
+            layout.addWidget(cal)
+
+        # 初始日期
+        cal_left.setSelectedDate(self.start_date)
+        cal_right.setSelectedDate(self.end_date)
+
+        # 选中逻辑
+        cal_left.clicked.connect(lambda d: self._on_start_selected(d))
+        cal_right.clicked.connect(lambda d: self._on_end_selected(d, menu))
+
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(container)
+        menu.addAction(action)
+        menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
+
+    def _on_start_selected(self, date):
+        self.start_date = date
+        self.update_text()
+
+    def _on_end_selected(self, date, menu):
+        self.end_date = date
+        self.update_text()
+        menu.close()  # 选完结束日期自动关闭
 
 # --- 预设默认 Team IDs ---
 DEFAULT_TEAM_IDS: List[int] = [17440957, 17440962, 17440963, 17440964, 17440965, 17440967, 917535482]
+# --- 导入真实 Worker ---
 DEFAULT_TEAM_IDS_STR = ", ".join(map(str, DEFAULT_TEAM_IDS))
 
-# --- 导入真实 Worker ---
+
 # 假设您已经把真实的 Worker 代码放在 batch_exporter_worker.py 文件中
 try:
     from batch_exporter_worker import BatchExporterWorker
@@ -78,95 +137,60 @@ class CustomDateEdit(QDateEdit):
 
 
 # --- 任务卡片类 (包含独立按钮和状态) ---
-
 class TaskInputCard(QFrame):
-    """
-    用于单个导出任务的卡片式日期输入组件，
-    包含独立的"导出"按钮和状态标签。
-    """
-
     def __init__(self, title: str, task_key: str, start_date_default: QDate, end_date_default: QDate, parent=None):
         super().__init__(parent)
         self.task_key = task_key
         self.setObjectName("TaskCard")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setFrameShadow(QFrame.Shadow.Raised)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedWidth(360)
+        self.setFixedHeight(160)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(12)
 
-        # 1. 标题
+        # 1. 第一行：标题与状态
+        header = QHBoxLayout()
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("font-size: 13pt; font-weight: 600; color: #1D1D1F; background: transparent;")
-        layout.addWidget(lbl_title)
+        lbl_title.setStyleSheet("font-size: 11pt; font-weight: bold; color: #303133; background: transparent;")
+        self.lbl_status_single = QLabel("等待中")
+        self.lbl_status_single.setStyleSheet("color: #909399; font-size: 9pt; background: transparent;")
+        header.addWidget(lbl_title)
+        header.addStretch()
+        header.addWidget(self.lbl_status_single)
+        layout.addLayout(header)
 
-        # 2. 日期选择区域
-        date_grid = QGridLayout()
-        date_grid.setSpacing(10)
+        # 2. 第二行：双月联动日期选择器
+        self.date_picker = CustomDateRangePicker(start_date_default, end_date_default)
+        layout.addWidget(self.date_picker)
 
-        # 开始日期
-        lbl_start = QLabel("开始日期")
-        lbl_start.setObjectName("input_label")
-        # --- 重点修改：使用 CustomDateEdit 替换 QDateEdit ---
-        self.date_start = CustomDateEdit(start_date_default)
-        self.date_start.setCalendarPopup(True)
-        self.date_start.setDisplayFormat("yyyy-MM-dd")
-        self.date_start.setObjectName("DateEdit")
-
-        date_grid.addWidget(lbl_start, 0, 0)
-        date_grid.addWidget(self.date_start, 1, 0)
-
-        # 结束日期
-        lbl_end = QLabel("结束日期")
-        lbl_end.setObjectName("input_label")
-        # --- 重点修改：使用 CustomDateEdit 替换 QDateEdit ---
-        self.date_end = CustomDateEdit(end_date_default)
-        self.date_end.setCalendarPopup(True)
-        self.date_end.setDisplayFormat("yyyy-MM-dd")
-        self.date_end.setObjectName("DateEdit")
-
-        date_grid.addWidget(lbl_end, 0, 1)
-        date_grid.addWidget(self.date_end, 1, 1)
-
-        layout.addLayout(date_grid)
-        layout.addSpacing(10)
-
-        # 3. 独立操作区 (按钮和状态)
-        action_layout = QHBoxLayout()
-        action_layout.setSpacing(10)
-
+        # 3. 第三行：操作按钮
+        bottom_row = QHBoxLayout()
         self.btn_export_single = QPushButton("导出该任务")
         self.btn_export_single.setObjectName("SingleExportButton")
+        self.btn_export_single.setFixedSize(90, 30)
         self.btn_export_single.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_export_single.setFixedHeight(30)
 
-        self.lbl_status_single = QLabel("就绪")
-        self.lbl_status_single.setStyleSheet("font-size: 9pt; color: #86868B; background: transparent;")
-        self.lbl_status_single.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        bottom_row.addStretch()
+        bottom_row.addWidget(self.btn_export_single)
+        layout.addLayout(bottom_row)
 
-        action_layout.addWidget(self.btn_export_single)
-        action_layout.addWidget(self.lbl_status_single)
-
-        layout.addLayout(action_layout)
-
-    def get_dates(self) -> Dict[str, str]:
-        """返回任务的开始和结束日期字符串"""
+    # --- 核心修复：补充缺失的方法 ---
+    def get_dates(self) -> dict:
         return {
-            "start": get_ui_date_string(self.date_start),
-            "end": get_ui_date_string(self.date_end)
+            "start": self.date_picker.start_date.toString("yyyy-MM-dd"),
+            "end": self.date_picker.end_date.toString("yyyy-MM-dd")
         }
 
     def set_status(self, status: str, color: str):
-        """设置卡片底部状态文本和颜色"""
-        self.lbl_status_single.setStyleSheet(
-            f"font-size: 9pt; font-weight: 500; color: {color}; background: transparent;")
+        self.lbl_status_single.setStyleSheet(f"font-size: 9pt; color: {color}; background: transparent;")
         self.lbl_status_single.setText(status)
 
     def set_buttons_enabled(self, enabled: bool):
-        """启用或禁用卡片上的按钮"""
+        """修复 AttributeError: 'TaskInputCard' object has no attribute 'set_buttons_enabled'"""
         self.btn_export_single.setEnabled(enabled)
+        # 运行期间也禁用日期选择
+        self.date_picker.setEnabled(enabled)
 
 
 # --- 批量导出页面类 ---
@@ -215,340 +239,283 @@ class BatchExportPage(QWidget):
             )
 
     def _setup_ui(self):
-        # 1. 外部容器和居中布局
-        center_layout = QVBoxLayout(self)
-        center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.addStretch()
+        # 整体采用垂直布局
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # 页面主体容器 (用于投影和圆角)
-        self.outer_container = QFrame()
-        self.outer_container.setObjectName("PageContainer")
-        self.outer_container.setFixedWidth(720)
+        # 1. 顶部标题和全局输入区
+        header_widget = QWidget()
+        header_widget.setObjectName("HeaderArea")
+        header_layout = QVBoxLayout(header_widget)
+        header_layout.setContentsMargins(50, 30, 50, 20)
+        header_layout.setSpacing(15)
 
-        # 页面总布局 (ScrollArea + BottomBar)
-        final_layout = QVBoxLayout(self.outer_container)
-        final_layout.setContentsMargins(0, 0, 0, 0)
+        # 标题行
+        title_box = QHBoxLayout()
 
-        # 2. 滚动区域 (ScrollArea)
+        title_text = QLabel("风神数据批量导出")
+        title_text.setStyleSheet("font-size: 18pt; font-weight: bold; color: #1D1D1F; background: transparent;")
+        title_box.addWidget(title_text)
+        title_box.addStretch()
+        header_layout.addLayout(title_box)
+
+        # 团队 ID 输入行
+        team_input_layout = QVBoxLayout()
+        lbl_team_tip = QLabel("🛵 团队 ID 配置 (多个用逗号分隔)")
+        lbl_team_tip.setStyleSheet("font-size: 10pt; color: #86868B; background: transparent;")
+        self.entry_team_ids = QLineEdit()
+        self.entry_team_ids.setText(DEFAULT_TEAM_IDS_STR)
+        self.entry_team_ids.setFixedHeight(40)
+        self.entry_team_ids.setPlaceholderText("请输入团队ID...")
+        team_input_layout.addWidget(lbl_team_tip)
+        team_input_layout.addWidget(self.entry_team_ids)
+        header_layout.addLayout(team_input_layout)
+
+        main_layout.addWidget(header_widget)
+
+        # 2. 中间滚动卡片区 (无边框处理)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setObjectName("PageScrollArea")
+        self.scroll_area.setStyleSheet("background: transparent;")  # 增强透明感
 
-        # 2.1 滚动区域内的内容 Widget
-        self.main_content_widget = QWidget()
-        self.main_content_layout = QVBoxLayout(self.main_content_widget)
-        self.main_content_layout.setContentsMargins(50, 50, 50, 20)
-        self.main_content_layout.setSpacing(25)
+        scroll_content = QWidget()
+        scroll_content.setObjectName("ScrollContent")
+        self.cards_grid = QGridLayout(scroll_content)
+        self.cards_grid.setContentsMargins(50, 10, 50, 30)
+        self.cards_grid.setSpacing(20)
 
-        # 标题
-        title_box = QHBoxLayout()
-        title_icon = QLabel("🚀")
-        title_icon.setStyleSheet("font-size: 28pt; background: transparent;")
-        title = QLabel("风神数据批量导出工具")
-        title.setObjectName("page_title")
-        title_box.addStretch()
-        title_box.addWidget(title_icon)
-        title_box.addWidget(title)
-        title_box.addStretch()
-        self.main_content_layout.addLayout(title_box)
-        self.main_content_layout.addSpacing(10)
-
-        # 团队 ID 输入
-        input_layout = QVBoxLayout()
-        input_layout.setSpacing(10)
-        lbl_team_ids = QLabel(f"🛵 团队 ID (多个用逗号分隔，例如: 12345,67890)")
-        lbl_team_ids.setObjectName("input_label")
-        self.entry_team_ids = QLineEdit()
-        self.entry_team_ids.setPlaceholderText("请输入要导出的团队 ID 列表...")
-        self.entry_team_ids.setText(DEFAULT_TEAM_IDS_STR)
-        lbl_export_folder = QLabel(f"📂 导出目录: {self.export_folder}",
-                                   styleSheet="font-size: 10pt; color: #86868B; background: transparent;")
-        input_layout.addWidget(lbl_team_ids)
-        input_layout.addWidget(self.entry_team_ids)
-        input_layout.addWidget(lbl_export_folder)
-        self.main_content_layout.addLayout(input_layout)
-        self.main_content_layout.addSpacing(15)
-
-        # 任务卡片列表标签
-        lbl_task_selector = QLabel("📅 任务和日期选择 (可独立导出或批量导出)",
-                                   styleSheet="font-size: 10pt; font-weight: 500; color: #86868B; background: transparent;")
-        self.main_content_layout.addWidget(lbl_task_selector)
-
-        # 任务卡片布局
-        self.task_cards_layout = QVBoxLayout()
-        self.task_cards_layout.setContentsMargins(0, 0, 0, 0)
-        self.task_cards_layout.setSpacing(15)
+        # 创建并添加卡片
         self.task_cards = self._create_task_cards()
-        for key in self.task_cards:
-            self.task_cards_layout.addWidget(self.task_cards[key])
-        self.task_cards_layout.addStretch()
-        self.main_content_layout.addLayout(self.task_cards_layout)
+        keys = list(self.task_cards.keys())
+        for i, key in enumerate(keys):
+            row, col = divmod(i, 2)
+            self.cards_grid.addWidget(self.task_cards[key], row, col)
 
-        self.scroll_area.setWidget(self.main_content_widget)
-        final_layout.addWidget(self.scroll_area)
+        self.cards_grid.setRowStretch(len(keys) // 2 + 1, 1)
+        self.scroll_area.setWidget(scroll_content)
+        main_layout.addWidget(self.scroll_area)
 
-        # 3. 底部固定操作栏 (BottomBar)
+        # 3. 底部固定状态栏 (重构布局：移除停止按钮)
         self.bottom_bar = QFrame()
         self.bottom_bar.setObjectName("BottomBar")
-        self.bottom_bar.setContentsMargins(50, 15, 50, 25)
         bottom_layout = QVBoxLayout(self.bottom_bar)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setContentsMargins(50, 20, 50, 30)  # 适当增加留白
 
-        # 按钮
-        bottom_btn_layout = QHBoxLayout()
-        bottom_btn_layout.setSpacing(15)
-
-        self.btn_start_batch = QPushButton("✅ 开始批量导出 (所有任务)")
-        self.btn_start_batch.setObjectName("StartButton")
-        self.btn_start_batch.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_start_batch.setFixedHeight(45)
-        self.btn_start_batch.clicked.connect(self.start_batch_export)
-
-        self.btn_stop = QPushButton("🛑 停止")
-        self.btn_stop.setObjectName("StopButton")
-        self.btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_stop.setFixedHeight(45)
-        self.btn_stop.clicked.connect(self.stop_worker)
-        self.btn_stop.setEnabled(False)
-        self.btn_stop.setFixedWidth(100)
-
-        bottom_btn_layout.addWidget(self.btn_start_batch)
-        bottom_btn_layout.addWidget(self.btn_stop)
-
-        # 进度条和状态标签
-        status_layout = QVBoxLayout()
-        status_layout.setSpacing(5)
+        # 第一行：状态提示 + 打开目录 (保持在一条线上)
+        status_line = QHBoxLayout()
         self.lbl_status = QLabel("准备就绪")
         self.lbl_status.setObjectName("StatusLabel")
-        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(6)
 
-        status_layout.addWidget(self.lbl_status)
-        status_layout.addWidget(self.progress_bar)
-
-        # 打开文件夹按钮
-        link_layout = QHBoxLayout()
-        self.btn_open = QPushButton("📂 打开导出文件夹")
-        self.btn_open.setObjectName("OpenButton")
+        self.btn_open = QPushButton("📂 打开导出目录")
+        self.btn_open.setObjectName("OpenFolderButton")  # 使用样式中定义的名称
         self.btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_open.setFlat(True)
         self.btn_open.clicked.connect(self.open_output_directory)
-        link_layout.addStretch()
-        link_layout.addWidget(self.btn_open)
-        link_layout.addStretch()
 
-        bottom_layout.addLayout(bottom_btn_layout)
-        bottom_layout.addSpacing(10)
-        bottom_layout.addLayout(status_layout)
+        status_line.addWidget(self.lbl_status)
+        status_line.addStretch()
+        status_line.addWidget(self.btn_open)
+        bottom_layout.addLayout(status_line)
+
+        # 第二行：进度条 (置于按钮上方，更显专业)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setValue(0)
+        bottom_layout.addWidget(self.progress_bar)
         bottom_layout.addSpacing(15)
-        bottom_layout.addLayout(link_layout)
 
-        final_layout.addWidget(self.bottom_bar)
+        # 第三行：全宽控制按钮
+        # 移除 self.btn_stop 布局，直接添加全量按钮
+        self.btn_start_batch = QPushButton("开始全量批量导出")
+        self.btn_start_batch.setObjectName("StartButton")  # 对应 QSS 中的蓝色大按钮
+        self.btn_start_batch.setFixedHeight(48)  # 增加高度，更具点击欲
+        self.btn_start_batch.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_start_batch.clicked.connect(self.start_batch_export)
 
-        # 4. 应用投影并居中
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(40)
-        shadow.setXOffset(0)
-        shadow.setYOffset(10)
-        shadow.setColor(QColor(0, 0, 0, 20))
-        self.outer_container.setGraphicsEffect(shadow)
+        # 按钮设为 Expanding 以填满宽度
+        self.btn_start_batch.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        center_layout.addWidget(self.outer_container, alignment=Qt.AlignmentFlag.AlignCenter)
-        center_layout.addStretch()
+        bottom_layout.addWidget(self.btn_start_batch)
+
+        main_layout.addWidget(self.bottom_bar)
 
     def apply_styles(self):
-        """应用 Apple 风格的现代 UI 样式"""
+        """
+        全量样式表定义，涵盖卡片、双月日期选择器、全局输入框及底部布局。
+        修复了点击按钮发白的问题，并实现了 Web 端的极简视觉风格。
+        """
+        self.setStyleSheet("""
+            /* --- 1. 全局基础样式 --- */
+            QWidget { 
+                background-color: #F8F9FB; 
+                font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+                color: #303133;
+                outline: none; /* 移除点击时的虚线框 */
+            }
 
-        BG_COLOR = "#F5F5F7"
-        CARD_COLOR = "#FFFFFF"
-        TEXT_PRIMARY = "#1D1D1F"
-        TEXT_SECONDARY = "#86868B"
-        ACCENT_BLUE = "#0071E3"
-        ACCENT_RED = "#FF3B30"
-        INPUT_BG = "#F5F5F7"
-        SCROLL_AREA_BG = "#FFFFFF"
-        ACCENT_GREEN = "#34C759"  # 用于成功的颜色
+            #ScrollContent, #HeaderArea { 
+                background: transparent; 
+            }
 
-        self.setStyleSheet(f"""
-            /* 1. 全局和外部容器 */
-            QWidget {{
-                background-color: {BG_COLOR}; 
-                color: {TEXT_PRIMARY};
-                font-family: "SF Pro Text", "Helvetica Neue", "Microsoft YaHei", sans-serif;
-            }}
-            #PageContainer {{
-                background-color: {CARD_COLOR};
-                border-radius: 20px;
-            }}
-            QLabel {{ background-color: transparent; }}
-
-            /* 2. 底部固定操作栏样式 */
-            #BottomBar {{
-                background-color: {CARD_COLOR}; 
-                border-top: 1px solid #E5E5EA; 
-            }}
-
-            /* 3. 滚动区域样式 (现在是整个主体) */
-            #PageScrollArea {{
-                border: none;
-                background-color: {SCROLL_AREA_BG};
-            }}
-            QScrollBar:vertical {{
-                border: none;
-                background: #E5E5EA;
-                width: 8px;
-                margin: 0px;
-                border-radius: 4px;
-            }}
-            QScrollBar::handle:vertical {{
-                background: #C7C7CC;
-                min-height: 20px;
-                border-radius: 4px;
-            }}
-
-            /* 4. 任务输入卡片 */
-            #TaskCard {{
-                background-color: {CARD_COLOR}; 
-                border-radius: 12px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); 
-                border: 1px solid #E5E5EA;
-            }}
-
-            /* 5. 日期选择器 (美化重点) */
-            QDateEdit {{
-                border: 1px solid #D1D1D6;
+            /* --- 2. 顶部团队 ID 输入框 --- */
+            QLineEdit {
+                border: 1px solid #DCDFE6;
                 border-radius: 8px;
-                padding: 6px 10px; /* 内部填充 */
-                background-color: {INPUT_BG}; 
-                color: {TEXT_PRIMARY};
+                padding: 10px 15px;
+                background-color: #FFFFFF;
                 font-size: 11pt;
-                text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-            }}
-            QDateEdit:focus {{
-                border: 1px solid {ACCENT_BLUE};
-                background-color: {CARD_COLOR}; /* 聚焦时变亮 */
-            }}
-            /* 下拉箭头样式 */
-            QDateEdit::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: center right;
-                width: 20px;
-                border-left: 1px solid #D1D1D6; /* 分隔线 */
-                padding: 0 5px;
-            }}
+                selection-background-color: #409EFF;
+            }
+            QLineEdit:focus { 
+                border: 1.5px solid #409EFF; 
+            }
 
-            /* ========================================================= */
-            /* 9. 弹出式日历 (QCalendarWidget) 样式增强 (重点修改部分) */
-            /* ========================================================= */
-            QCalendarWidget {{
-                background-color: {CARD_COLOR};
-                border: 1px solid #C7C7CC; /* 边框 */
-                border-radius: 12px; /* 增加圆角 */
-                padding: 5px;
-            }}
+            /* --- 3. 任务卡片容器 --- */
+            #TaskCard {
+                background-color: #FFFFFF;
+                border: 1px solid #EBEEF5;
+                border-radius: 12px;
+            }
+            #TaskCard:hover { 
+                border-color: #409EFF; 
+            }
 
-            /* 导航栏 (显示月份和年份的顶部区域) */
-            QCalendarWidget QWidget#qt_calendar_navigationbar {{
-                background-color: {CARD_COLOR};
-                border-bottom: 1px solid #E5E5EA; /* 分隔线 */
-                padding-bottom: 5px;
-            }}
-
-            /* 导航按钮 (左右箭头) */
-            QCalendarWidget QToolButton {{
-                border: none;
-                icon-size: 16px;
-                margin: 0px 5px;
-                padding: 5px;
-                border-radius: 6px;
-                background-color: {CARD_COLOR};
-            }}
-            QCalendarWidget QToolButton:hover {{
-                background-color: {INPUT_BG}; /* 悬停效果 */
-            }}
-            QCalendarWidget QToolButton::menu-indicator {{
-                /* 移除菜单下拉指示器 */
-                image: none;
-            }}
-
-            /* 导航标签 (月份和年份文本) */
-            QCalendarWidget QAbstractItemView:enabled {{
-                background-color: {CARD_COLOR}; 
+            /* --- 4. 联动日期选择按钮 (还原 image_ad591e) --- */
+            #DateRangePickerTrigger {
+                background-color: #FFFFFF;
+                border: 1px solid #DCDFE6;
+                border-radius: 4px;
+                color: #606266;
+                text-align: left;      /* 文字左对齐 */
+                padding-left: 15px;    /* 留出左边距 */
                 font-size: 10pt;
-            }}
+                height: 32px;
+            }
+            #DateRangePickerTrigger:hover { 
+                border-color: #C0C4CC; 
+                color: #409EFF;
+            }
+            #DateRangePickerTrigger:disabled { 
+                background-color: #F5F7FA; 
+                color: #C0C4CC; 
+                border-color: #E4E7ED;
+            }
 
-            /* 日期主体部分 (显示日期的网格) */
-            QCalendarWidget QAbstractItemView {{
-                font-size: 10pt;
-                padding-top: 5px; /* 增加与导航栏的距离 */
-            }}
-
-            /* 星期标题 (周一、周二...) */
-            QCalendarWidget QAbstractItemView::item:text:nth-child(7n-1), /* 周六 */
-            QCalendarWidget QAbstractItemView::item:text:nth-child(7n)   /* 周日 */
-            {{
-                color: {ACCENT_RED}; /* 周末红色 */
-            }}
-
-            /* 未被选中的普通日期和悬停效果 */
-            QCalendarWidget QAbstractItemView::item:!selected:hover {{
-                background-color: {INPUT_BG}; /* 日期悬停效果 */
-                border-radius: 6px;
-            }}
-
-            /* 禁用日期（上个月/下个月的日期） */
-            QCalendarWidget QAbstractItemView::item:!enabled {{
-                color: #C7C7CC; 
-            }}
-
-            /* 选中日期 (当前选定的日期) */
-            QCalendarWidget QAbstractItemView::item:selected {{
-                background-color: {ACCENT_BLUE}; 
-                color: white; 
-                border-radius: 6px;
-            }}
-
-            /* 今天日期的特殊标记（通常由QCalendarWidget自动实现，但可以通过此项确保颜色统一） */
-            /* 注意: QCalendarWidget的 'today' 状态可能需要更复杂的代理样式，此处主要靠选中状态和背景色处理 */
-
-
-            /* 6. 输入框 */
-            QLineEdit {{
-                border: none;
-                border-radius: 10px;
-                padding: 12px 16px;
-                background-color: {INPUT_BG}; 
-                color: {TEXT_PRIMARY};
-                font-size: 11pt;
-            }}
-
-            /* 7. 按钮样式 */
-            #StartButton {{ background-color: {ACCENT_BLUE}; color: white; border-radius: 18px; padding: 10px 24px; font-weight: 600; }}
-            #StopButton {{ background-color: rgba(255, 59, 48, 0.1); color: {ACCENT_RED}; border-radius: 18px; padding: 10px 24px; font-weight: 600; }}
-            #OpenButton {{ background-color: {CARD_COLOR}; color: {TEXT_PRIMARY}; border-radius: 18px; padding: 10px 24px; font-weight: 600; }}
-
-            /* 卡片内部的独立导出按钮 */
-            #SingleExportButton {{
-                background-color: #E5E5EA;
-                color: {TEXT_PRIMARY};
-                border-radius: 15px;
-                padding: 6px 15px;
+            /* --- 5. 卡片内的小导出按钮 (修复点击变白问题) --- */
+            #SingleExportButton {
+                background-color: #F0F7FF;
+                color: #409EFF;
+                border: 1px solid #D9ECFF;
+                border-radius: 4px;
                 font-weight: 500;
+                font-size: 9pt;
+            }
+            #SingleExportButton:hover { 
+                background-color: #E1EFFF; 
+                border-color: #B3D8FF;
+            }
+            #SingleExportButton:pressed { 
+                background-color: #409EFF; /* 点击时变为明显的蓝色 */
+                color: #FFFFFF;            /* 文字变白 */
+                border-color: #409EFF;
+            }
+            #SingleExportButton:disabled { 
+                background-color: #F5F7FA; 
+                color: #C0C4CC; 
+                border: none; 
+            }
+
+            /* --- 6. 底部固定状态栏 --- */
+            #BottomBar {
+                background-color: #FFFFFF;
+                border-top: 1px solid #EBEEF5;
+            }
+
+            /* --- 7. 底部全量批量导出按钮 (image_ad6789) --- */
+            #StartButton {
+                background-color: #409EFF;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 12pt;
+                font-weight: bold;
+            }
+            #StartButton:hover { 
+                background-color: #66b1ff; 
+            }
+            #StartButton:pressed { 
+                background-color: #3a8ee6; 
+            }
+            #StartButton:disabled { 
+                background-color: #a0cfff; 
+            }
+
+            /* --- 8. 打开目录链接按钮 --- */
+            #OpenFolderButton {
+                background: transparent;
+                color: #409EFF;
+                border: none;
                 font-size: 10pt;
-            }}
-            #SingleExportButton:hover {{ background-color: #D1D1D6; }}
+                text-decoration: underline; /* 增加下划线模拟 Web 链接 */
+            }
+            #OpenFolderButton:hover { 
+                color: #66b1ff; 
+            }
 
-            /* 8. 状态和进度条 */
-            #StatusLabel {{ font-size: 10pt; color: {TEXT_SECONDARY}; }}
-            QProgressBar {{ border-radius: 3px; background-color: #E5E5EA; height: 6px; }}
-            QProgressBar::chunk {{ background-color: {ACCENT_BLUE}; border-radius: 3px; }}
+            /* --- 9. 状态标签与进度条 --- */
+            #StatusLabel { 
+                color: #909399; 
+                font-size: 10pt; 
+            }
+            #StatusLabelSmall { 
+                color: #909399; 
+                font-size: 9pt; 
+                background: transparent; 
+            }
 
+            QProgressBar {
+                background: #EBEEF5;
+                border: none;
+                border-radius: 2px;
+            }
+            QProgressBar::chunk {
+                background-color: #409EFF;
+                border-radius: 2px;
+            }
+
+            /* --- 10. 日历弹出面板美化 --- */
+            #CalendarMenu {
+                background-color: #FFFFFF;
+                border: 1px solid #EBEEF5;
+                border-radius: 8px;
+            }
+            QCalendarWidget QWidget { background-color: white; }
+            QCalendarWidget QToolButton {
+                color: #303133;
+                background: transparent;
+                border: none;
+                font-weight: bold;
+            }
+            QCalendarWidget QAbstractItemView {
+                selection-background-color: #409EFF;
+                selection-color: white;
+                outline: none;
+            }
         """)
+
+        # 为所有任务卡片添加弥散阴影逻辑
+        for card in self.task_cards.values():
+            shadow = QGraphicsDropShadowEffect(card)
+            shadow.setBlurRadius(20)  # 阴影模糊程度
+            shadow.setXOffset(0)  # 水平偏移
+            shadow.setYOffset(4)  # 垂直偏移，产生悬浮感
+            shadow.setColor(QColor(0, 0, 0, 15))  # 极浅的黑色阴影
+            card.setGraphicsEffect(shadow)
+
 
     # --- 辅助方法：收集 UI 数据 ---
     def _collect_task_date_params(self) -> Dict[str, Dict[str, str]]:
@@ -683,18 +650,10 @@ class BatchExportPage(QWidget):
         # 显示错误对话框
         QMessageBox.critical(self, "任务失败", message)
 
-    @Slot()
-    def stop_worker(self):
-        """停止当前正在运行的 Worker"""
-        if self.worker and self.thread and self.thread.isRunning():
-            self.worker.stop()
-            self.lbl_status.setText("🛑 正在尝试安全停止任务...")
-            self.btn_stop.setEnabled(False)
 
     def _set_ui_running_state(self, is_running: bool, task_key: str = None):
         """设置整体和卡片的 UI 状态"""
         self.btn_start_batch.setEnabled(not is_running)
-        self.btn_stop.setEnabled(is_running)
 
         for key, card in self.task_cards.items():
             card.set_buttons_enabled(not is_running)

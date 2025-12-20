@@ -1393,7 +1393,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Intelligent Middle Platform v2.0")
-        self.resize(1250, 750)
+        self.resize(1200, 780)  # 稍微收窄宽度，让侧边栏和两列卡片布局更紧凑
         self.setMinimumSize(950, 650)
 
         self.buttons = []

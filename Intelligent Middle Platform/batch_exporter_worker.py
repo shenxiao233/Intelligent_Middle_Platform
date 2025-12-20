@@ -263,38 +263,37 @@ class BatchExporterWorker(QObject):
             payload: Dict[str, Any],
             filename_prefix: str,
             cookies_dict: Dict[str, str],
-            is_direct_download: bool = False
+            is_direct_download: bool = False,
+            start_date: str = "",  # 新增
+            end_date: str = ""     # 新增
     ):
-        """执行通用的导出请求，并根据返回内容自动判断文件格式 (.xlsx 或 .csv)"""
+        """执行通用的导出请求，文件名使用传入的日期范围"""
         if not self.is_running:
             return
 
-        self._last_file_name = ""  # 执行前重置文件名
-        headers = HEADERS.copy()  # 使用通用的 Headers 配置
+        self._last_file_name = ""
+        headers = HEADERS.copy()
+
+        # --- 构造日期后缀 ---
+        # 如果传入了日期，格式为: 20231201_20231220；否则回退到当前时间
+        if start_date and end_date:
+            date_suffix = f"{start_date.replace('-', '')}_{end_date.replace('-', '')}"
+        else:
+            date_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
 
         try:
-            # --- 情况 A: 直接返回文件流 (如：骑手每日详情) ---
+            # --- 情况 A: 直接返回文件流 ---
             if is_direct_download:
-                response = requests.post(
-                    url, headers=headers, json=payload, stream=True, timeout=30, cookies=cookies_dict
-                )
+                response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30, cookies=cookies_dict)
                 response.raise_for_status()
 
-                # 检查是否真的返回了文件，还是返回了报错的 JSON
                 content_type = response.headers.get('Content-Type', '').lower()
-                if 'application/json' in content_type:
-                    result = response.json()
-                    raise Exception(f"业务处理失败: {result.get('msg', '未知错误')}")
+                ext = ".csv" if "csv" in content_type else ".xlsx"
 
-                # 动态判断后缀：优先从 Content-Disposition 获取，否则根据 Content-Type 判断
-                ext = ".xlsx"
-                if "csv" in content_type:
-                    ext = ".csv"
-
-                filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+                # 使用日期范围命名
+                filename = f"{filename_prefix}_{date_suffix}{ext}"
                 output_path = os.path.join(self.output_dir, filename)
 
-                # 流式写入文件
                 with open(output_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         if not self.is_running:
@@ -306,39 +305,28 @@ class BatchExporterWorker(QObject):
                 self.progress_update.emit(self.total_tasks, f"✅ {job_name} 下载成功：{filename}")
                 return
 
-            # --- 情况 B: 返回 JSON 包含下载链接 (如：违规、排班、考勤) ---
-            response = requests.post(
-                url, headers=headers, json=payload, timeout=30, cookies=cookies_dict
-            )
+            # --- 情况 B: 返回 JSON 包含下载链接 ---
+            response = requests.post(url, headers=headers, json=payload, timeout=30, cookies=cookies_dict)
             response.raise_for_status()
             result = response.json()
 
             download_url = None
             if result.get('code') == 200:
-                # 兼容不同的返回结构
                 data = result.get('result', {}).get('data', {}) or result.get('data', {})
                 download_url = data.get('fileUrl') or data.get('url')
 
             if download_url:
-                # 💡 核心改进：根据下载链接自动识别后缀名
-                # 如果链接里包含 .csv（忽略大小写），则使用 .csv 后缀
                 ext = ".csv" if ".csv" in download_url.lower() else ".xlsx"
-                filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+                # 使用日期范围命名
+                filename = f"{filename_prefix}_{date_suffix}{ext}"
 
-                # 调用下载辅助函数
                 if not self._download_file_from_url(download_url, job_name, filename):
                     self._last_file_name = ""
                     return
             else:
-                error_msg = f"❌ {job_name} 接口未返回下载链接。消息: {result.get('msg', '无')}"
-                self.error_occurred.emit(error_msg)
+                self.error_occurred.emit(f"❌ {job_name} 接口未返回下载链接。")
                 self.has_batch_failed = True
 
-        except requests.exceptions.HTTPError as e:
-            status_code = response.status_code if response is not None else 'N/A'
-            msg = "Cookie可能已过期" if status_code == 401 else str(e)
-            self.error_occurred.emit(f"❌ {job_name} 网络错误 ({status_code}): {msg}")
-            self.has_batch_failed = True
         except Exception as e:
             self.error_occurred.emit(f"❌ {job_name} 运行异常: {str(e)}")
             self.has_batch_failed = True
@@ -370,7 +358,9 @@ class BatchExporterWorker(QObject):
             url="https://httpizza.ele.me/xtop/xtop.lpd.quality.control.violation.violationOrderAeolusCenterApi.download/1.0",
             payload=payload,
             filename_prefix="风神服务奖惩数据",
-            cookies_dict=cookies_dict
+            cookies_dict=cookies_dict,
+            start_date=start_date,  # 传入开始日期
+            end_date=end_date  # 传入结束日期
         )
 
     def _task_schedule(self, cookies_dict: Dict[str, str]):
@@ -392,7 +382,9 @@ class BatchExporterWorker(QObject):
             url="https://httpizza.ele.me/xtop/xtop.fs.special.schedule.exportSchedule/1.0",
             payload=payload,
             filename_prefix="骑手排班信息",
-            cookies_dict=cookies_dict
+            cookies_dict=cookies_dict,
+            start_date=start_date,  # 传入开始日期
+            end_date=end_date  # 传入结束日期
         )
 
     def _task_attendance(self, cookies_dict: Dict[str, str]):
@@ -414,7 +406,9 @@ class BatchExporterWorker(QObject):
             url="https://httpizza.ele.me/xtop/xtop.fs.special.examine.exportStatisticsDetail/1.0",
             payload=payload,
             filename_prefix="骑手每日考勤明细",
-            cookies_dict=cookies_dict
+            cookies_dict=cookies_dict,
+            start_date=start_date,  # 传入开始日期
+            end_date=end_date  # 传入结束日期
         )
 
     def _task_daily_detail(self, cookies_dict: Dict[str, str]):
@@ -457,5 +451,7 @@ class BatchExporterWorker(QObject):
             payload=payload,
             filename_prefix="骑手每日详情数据",
             cookies_dict=cookies_dict,
-            is_direct_download=True
+            is_direct_download=True,
+            start_date=start_date,  # 传入开始日期
+            end_date=end_date  # 传入结束日期
         )
