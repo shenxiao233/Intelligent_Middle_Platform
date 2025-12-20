@@ -1,55 +1,293 @@
-/* style.qss - 请确保文件以 UTF-8 编码保存 */
+/* ============================================================
+   1. 全局基础与主容器
+   ============================================================ */
+QMainWindow, QWidget#CentralWidget {
+    background-color: #F8FAFC; /* 极浅灰蓝背景 */
+}
 
-/* 明确指定 objectName 的写法 */
+/* 隐藏所有滚动条 */
+QScrollBar:vertical, QScrollBar:horizontal {
+    width: 0px;
+    height: 0px;
+    background: transparent;
+}
+
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: none;
+}
+
+/* ============================================================
+   2. 侧边栏 (SideBar) - 紫色主题
+   ============================================================ */
 QWidget#SideBar {
-    background-color: #2C3E50;
-    border: none;
-}
-
-/* 确保上一段的 } 已经完全闭合 */
-#SideBar {
-    background-color: #2C3E50;
-}
-
-.NavButton {
     background-color: transparent;
-    color: #BDC3C7;
     border: none;
-    padding: 12px 20px;
+}
+
+/* 呼吸灯文字 */
+QLabel#status_text_label {
+    color: #64748B;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* 导航按钮 */
+QPushButton.NavButton {
+    border: none;
+    border-radius: 10px;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 10px 16px;
+    margin: 2px 12px;
     text-align: left;
-    font-size: 10.5pt;
-    /* 修正：Qt 中 border-left 的简写有时解析不稳定，建议分开写 */
-    border-left: 4px solid transparent;
+    background-color: transparent;
 }
 
-.NavButton:hover {
-    background-color: #34495E;
+QPushButton.NavButton:hover {
+    background-color: rgba(99, 102, 241, 0.05); /* 极淡紫悬停 */
+    color: #6366F1;
+}
+
+/* 导航选中态：紫色 MacOS 风格 */
+QPushButton.NavButton:checked,
+QPushButton.NavButton[active="true"] {
+    background-color: #EEF2FF; /* 浅紫底 */
+    color: #6366F1;            /* 主紫色文字 */
+    font-weight: 600;
+    border-left: 4px solid #6366F1; /* 紫色指示条 */
+    border-top-left-radius: 2px;
+    border-bottom-left-radius: 2px;
+}
+
+/* ============================================================
+   3. 内容容器 (ContentCanvas)
+   ============================================================ */
+QWidget#ContentCanvas {
+    background-color: #FFFFFF;
+    border-radius: 20px;
+    border: 1px solid rgba(99, 102, 241, 0.1); /* 带有微弱紫色边框 */
+}
+
+/* ============================================================
+   4. 通用组件与输入框
+   ============================================================ */
+QLineEdit, QTextEdit {
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    background-color: #F8FAFC;
+}
+
+QLineEdit:focus, QTextEdit:focus {
+    border: 2px solid #C7D2FE; /* 聚焦时淡紫色边框 */
+    background-color: #FFFFFF;
+}
+
+/* ============================================================
+   5. 统一紫色按钮 (Primary Purple Button)
+   ============================================================ */
+#ActionButton,
+#ParseButton,
+#SaveButton,
+#StartProcessButton {
+    background-color: #6366F1; /* 统一紫色 */
     color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 14px;
+    padding: 10px 20px;
 }
 
-/* 使用自定义属性选择器 */
-.NavButton[active="true"] {
-    background-color: #1A252F;
-    color: #007AFF;
-    border-left: 4px solid #007AFF;
+#ActionButton:hover,
+#ParseButton:hover,
+#SaveButton:hover,
+#StartProcessButton:hover {
+    background-color: #4F46E5; /* 悬停深紫 */
+}
+
+#ActionButton:pressed,
+#SaveButton:pressed,
+#StartProcessButton:pressed {
+    background-color: #4338CA;
+}
+
+/* ============================================================
+   5. 设置页 (SettingsPage) 细节微调
+   ============================================================ */
+/* 统一标题颜色为深沉的灰黑色，不要变紫 */
+#SettingsTitle {
+    font-size: 24px;
+    font-weight: bold;
+    color: #1E293B;
+    margin-bottom: 10px;
+}
+
+/* 步骤说明 */
+#StepLabel {
+    font-size: 14px;
+    font-weight: 600;
+    color: #475569;
+    margin-top: 10px;
+}
+
+/* Cookie 字段标签 */
+#CookieLabel {
+    min-width: 180px;
+    font-size: 13px;
+    color: #64748B;
+}
+
+/* 输入框聚焦：紫色光晕 */
+QLineEdit:focus, QTextEdit:focus {
+    border: 2px solid #C7D2FE;
+    background-color: #FFFFFF;
+}
+
+/* 底部提示文字 */
+#StatusLabel {
+    color: #94A3B8;
+    font-size: 12px;
+}
+
+/* ============================================================
+   CrawlerPage 专项样式补充
+   ============================================================ */
+
+/* 1. 停止按钮：红色警示感 */
+#StopButton {
+    background-color: #FEF2F2; /* 极淡红 */
+    color: #EF4444;           /* 苹果红 */
+    border: 1px solid #FEE2E2;
+    border-radius: 10px;
     font-weight: bold;
 }
 
-#ContentCanvas {
-    background-color: white;
-    border-radius: 12px;
+#StopButton:hover {
+    background-color: #FEE2E2;
 }
 
-/* 状态栏样式 */
-QStatusBar#ModernStatusBar {
-    background-color: #FFFFFF;
-    border-top: 1px solid #F0F0F0;
+#StopButton:disabled {
+    background-color: transparent;
+    border: 1px solid #E2E8F0;
+    color: #CBD5E1;
 }
 
-QStatusBar::item {
+/* 2. 进度条美化：细长精致 */
+QProgressBar {
     border: none;
+    border-radius: 4px;
+    background-color: #F1F5F9;
+    height: 6px;
 }
 
-QWidget#BadgeContainer:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+QProgressBar::chunk {
+    background-color: #6366F1; /* 统一使用紫色进度条 */
+    border-radius: 4px;
+}
+
+/* 3. 次要按钮 (如：打开文件夹) */
+#SecondaryButton {
+    background-color: transparent;
+    color: #64748B;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+#SecondaryButton:hover {
+    background-color: #F8FAFC;
+    color: #6366F1;
+    border-color: #C7D2FE;
+}
+
+/* ============================================================
+   批量导出页：极简扁平化风格 (去卡片嵌套)
+   ============================================================ */
+
+/* 1. 任务条目容器：彻底去掉背景色和投影，仅靠留白和左侧指示条区分 */
+#TaskItem {
+    background-color: transparent; /* 拒绝卡片感，完全透明 */
+    border: none;
+    border-radius: 0px;
+}
+
+/* 2. 任务标题：加粗深色，利用字重建立层级 */
+#TaskItemTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1E293B; /* 深灰蓝，高级感 */
+    background: transparent;
+}
+
+/* 3. 任务状态文字：小号浅灰色 */
+#StatusLabelSmall {
+    font-size: 11px;
+    color: #94A3B8;
+    background: transparent;
+}
+
+/* 4. 团队 ID 输入框：背景设为极浅灰蓝，与白色大背景拉开微弱差距 */
+QLineEdit {
+    background-color: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    padding: 0 15px;
+    color: #1E293B;
+    font-size: 13px;
+}
+
+QLineEdit:focus {
+    border: 2px solid #C7D2FE; /* 聚焦时紫色光晕 */
+    background-color: #FFFFFF;
+}
+
+/* 5. 日期选择器按钮：扁平化处理 */
+#DateRangePickerTrigger {
+    background-color: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    color: #475569;
+    padding: 0 12px;
+    font-size: 12px;
+}
+
+#DateRangePickerTrigger:hover {
+    border-color: #C7D2FE;
+    color: #6366F1;
+}
+
+/* 6. “生成此表”幽灵按钮：平时低调，悬停显色 */
+#GhostActionButton {
+    background-color: transparent;
+    color: #6366F1;
+    border: 1px solid #E0E7FF;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+#GhostActionButton:hover {
+    background-color: #6366F1;
+    color: white;
+}
+
+/* 7. 底部状态栏隔离线：非常浅的一条线 */
+#BottomBar {
+    background-color: #FFFFFF;
+    border-top: 1px solid #F1F5F9;
+}
+
+/* 8. 进度条统一紫色 */
+QProgressBar {
+    background: #F1F5F9;
+    border: none;
+    border-radius: 3px;
+}
+
+QProgressBar::chunk {
+    background-color: #6366F1;
+    border-radius: 3px;
 }

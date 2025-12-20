@@ -137,39 +137,45 @@ class CustomDateEdit(QDateEdit):
 
 
 # --- 任务卡片类 (包含独立按钮和状态) ---
-class TaskInputCard(QFrame):
+class TaskInputCard(QWidget):
     def __init__(self, title: str, task_key: str, start_date_default: QDate, end_date_default: QDate, parent=None):
         super().__init__(parent)
         self.task_key = task_key
-        self.setObjectName("TaskCard")
-        self.setFixedWidth(360)
-        self.setFixedHeight(160)
+        # 取消固定宽高，让它随布局伸缩，只设最小高度
+        self.setMinimumHeight(110)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 15, 20, 15)
-        layout.setSpacing(12)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(8)
 
-        # 1. 第一行：标题与状态
+        # 第一行：标题 + 状态（去掉背景，直接在白底上）
         header = QHBoxLayout()
+        # 紫色装饰小方块，替代沉重的边框
+        indicator = QFrame()
+        indicator.setFixedSize(4, 16)
+        indicator.setStyleSheet("background-color: #6366F1; border-radius: 2px;")
+
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("font-size: 11pt; font-weight: bold; color: #303133; background: transparent;")
+        lbl_title.setObjectName("TaskItemTitle")  # 样式：深色加粗
+
         self.lbl_status_single = QLabel("等待中")
-        self.lbl_status_single.setStyleSheet("color: #909399; font-size: 9pt; background: transparent;")
+        self.lbl_status_single.setObjectName("StatusLabelSmall")
+
+        header.addWidget(indicator)
         header.addWidget(lbl_title)
         header.addStretch()
         header.addWidget(self.lbl_status_single)
         layout.addLayout(header)
 
-        # 2. 第二行：双月联动日期选择器
+        # 第二行：联动日期选择器（这里的日期选择器建议也做成扁平色调）
         self.date_picker = CustomDateRangePicker(start_date_default, end_date_default)
         layout.addWidget(self.date_picker)
 
-        # 3. 第三行：操作按钮
+        # 第三行：操作按钮（使用更轻盈的样式）
         bottom_row = QHBoxLayout()
-        self.btn_export_single = QPushButton("导出该任务")
-        self.btn_export_single.setObjectName("SingleExportButton")
-        self.btn_export_single.setFixedSize(90, 30)
-        self.btn_export_single.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_export_single = QPushButton("生成此表")
+        self.btn_export_single.setObjectName("GhostActionButton")  # 幽灵按钮样式
+        self.btn_export_single.setFixedSize(80, 28)
 
         bottom_row.addStretch()
         bottom_row.addWidget(self.btn_export_single)
@@ -212,7 +218,6 @@ class BatchExportPage(QWidget):
         self.is_batch_mode = False
 
         self._setup_ui()
-        self.apply_styles()
         self._bind_card_signals()
 
     def _create_task_cards(self):
@@ -239,282 +244,87 @@ class BatchExportPage(QWidget):
             )
 
     def _setup_ui(self):
-        # 整体采用垂直布局
+        # 1. 顶层主布局
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(50, 40, 50, 40)  # 侧边留白增加呼吸感
         main_layout.setSpacing(0)
 
-        # 1. 顶部标题和全局输入区
-        header_widget = QWidget()
-        header_widget.setObjectName("HeaderArea")
-        header_layout = QVBoxLayout(header_widget)
-        header_layout.setContentsMargins(50, 30, 50, 20)
-        header_layout.setSpacing(15)
+        # --- 1. 顶部标题与 ID 配置区 (直接放在主背景上) ---
+        header_section = QVBoxLayout()
+        header_section.setSpacing(12)
 
-        # 标题行
-        title_box = QHBoxLayout()
+        title_text = QLabel("风神批量数据工作台")
+        title_text.setObjectName("SettingsTitle")  # 对应 QSS 中的紫色大标题
 
-        title_text = QLabel("风神数据批量导出")
-        title_text.setStyleSheet("font-size: 18pt; font-weight: bold; color: #1D1D1F; background: transparent;")
-        title_box.addWidget(title_text)
-        title_box.addStretch()
-        header_layout.addLayout(title_box)
+        lbl_team_tip = QLabel("🛵 团队 ID 配置 (已自动加载预设)")
+        lbl_team_tip.setObjectName("StepLabel")  # 对应 QSS 中的步骤标签
 
-        # 团队 ID 输入行
-        team_input_layout = QVBoxLayout()
-        lbl_team_tip = QLabel("🛵 团队 ID 配置 (多个用逗号分隔)")
-        lbl_team_tip.setStyleSheet("font-size: 10pt; color: #86868B; background: transparent;")
         self.entry_team_ids = QLineEdit()
+        self.entry_team_ids.setFixedHeight(48)
+        # --- 预设 ID 逻辑 ---
+        DEFAULT_TEAM_IDS = [17440957, 17440962, 17440963, 17440964, 17440965, 17440967, 917535482]
+        DEFAULT_TEAM_IDS_STR = ", ".join(map(str, DEFAULT_TEAM_IDS))
         self.entry_team_ids.setText(DEFAULT_TEAM_IDS_STR)
-        self.entry_team_ids.setFixedHeight(40)
-        self.entry_team_ids.setPlaceholderText("请输入团队ID...")
-        team_input_layout.addWidget(lbl_team_tip)
-        team_input_layout.addWidget(self.entry_team_ids)
-        header_layout.addLayout(team_input_layout)
 
-        main_layout.addWidget(header_widget)
+        header_section.addWidget(title_text)
+        header_section.addSpacing(10)
+        header_section.addWidget(lbl_team_tip)
+        header_section.addWidget(self.entry_team_ids)
 
-        # 2. 中间滚动卡片区 (无边框处理)
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setObjectName("PageScrollArea")
-        self.scroll_area.setStyleSheet("background: transparent;")  # 增强透明感
+        main_layout.addLayout(header_section)
+        main_layout.addSpacing(40)  # 标题区与任务区的间距
 
-        scroll_content = QWidget()
-        scroll_content.setObjectName("ScrollContent")
-        self.cards_grid = QGridLayout(scroll_content)
-        self.cards_grid.setContentsMargins(50, 10, 50, 30)
-        self.cards_grid.setSpacing(20)
+        # --- 2. 任务列表区 (删掉之前重复的部分，只留一份) ---
+        self.cards_grid = QGridLayout()
+        self.cards_grid.setSpacing(25)
 
-        # 创建并添加卡片
-        self.task_cards = self._create_task_cards()
-        keys = list(self.task_cards.keys())
-        for i, key in enumerate(keys):
+        self.task_cards = self._create_task_cards()  # 仅调用一次
+        for i, (key, card) in enumerate(self.task_cards.items()):
             row, col = divmod(i, 2)
-            self.cards_grid.addWidget(self.task_cards[key], row, col)
+            self.cards_grid.addWidget(card, row, col)
 
-        self.cards_grid.setRowStretch(len(keys) // 2 + 1, 1)
-        self.scroll_area.setWidget(scroll_content)
-        main_layout.addWidget(self.scroll_area)
+        main_layout.addLayout(self.cards_grid)
 
-        # 3. 底部固定状态栏 (重构布局：移除停止按钮)
-        self.bottom_bar = QFrame()
-        self.bottom_bar.setObjectName("BottomBar")
-        bottom_layout = QVBoxLayout(self.bottom_bar)
-        bottom_layout.setContentsMargins(50, 20, 50, 30)  # 适当增加留白
+        # 添加一个弹簧，将底部内容压下去
+        main_layout.addStretch()
 
-        # 第一行：状态提示 + 打开目录 (保持在一条线上)
-        status_line = QHBoxLayout()
+        # --- 3. 底部整合区 (悬浮感状态栏) ---
+        bottom_layout = QVBoxLayout()
+        bottom_layout.setSpacing(15)
+
+        # 状态文字与目录按钮
+        status_row = QHBoxLayout()
         self.lbl_status = QLabel("准备就绪")
         self.lbl_status.setObjectName("StatusLabel")
 
         self.btn_open = QPushButton("📂 打开导出目录")
-        self.btn_open.setObjectName("OpenFolderButton")  # 使用样式中定义的名称
-        self.btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_open.setObjectName("SecondaryButton")  # 浅灰色次要按钮
+        self.btn_open.setCursor(Qt.PointingHandCursor)
+
         self.btn_open.clicked.connect(self.open_output_directory)
 
-        status_line.addWidget(self.lbl_status)
-        status_line.addStretch()
-        status_line.addWidget(self.btn_open)
-        bottom_layout.addLayout(status_line)
+        status_row.addWidget(self.lbl_status)
+        status_row.addStretch()
+        status_row.addWidget(self.btn_open)
+        bottom_layout.addLayout(status_row)
 
-        # 第二行：进度条 (置于按钮上方，更显专业)
+        # 进度条
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setFixedHeight(8)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setValue(0)
         bottom_layout.addWidget(self.progress_bar)
-        bottom_layout.addSpacing(15)
 
-        # 第三行：全宽控制按钮
-        # 移除 self.btn_stop 布局，直接添加全量按钮
-        self.btn_start_batch = QPushButton("开始全量批量导出")
-        self.btn_start_batch.setObjectName("StartButton")  # 对应 QSS 中的蓝色大按钮
-        self.btn_start_batch.setFixedHeight(48)  # 增加高度，更具点击欲
-        self.btn_start_batch.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 核心启动按钮
+        self.btn_start_batch = QPushButton("🚀 开始全量批量导出")
+        self.btn_start_batch.setObjectName("ActionButton")  # 标志性的紫色按钮
+        self.btn_start_batch.setFixedHeight(50)
+        self.btn_start_batch.setCursor(Qt.PointingHandCursor)
+        bottom_layout.addWidget(self.btn_start_batch)
+        # 必须添加这一行，否则点击按钮不会有任何动作
         self.btn_start_batch.clicked.connect(self.start_batch_export)
 
-        # 按钮设为 Expanding 以填满宽度
-        self.btn_start_batch.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-        bottom_layout.addWidget(self.btn_start_batch)
-
-        main_layout.addWidget(self.bottom_bar)
-
-    def apply_styles(self):
-        """
-        全量样式表定义，涵盖卡片、双月日期选择器、全局输入框及底部布局。
-        修复了点击按钮发白的问题，并实现了 Web 端的极简视觉风格。
-        """
-        self.setStyleSheet("""
-            /* --- 1. 全局基础样式 --- */
-            QWidget { 
-                background-color: #F8F9FB; 
-                font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
-                color: #303133;
-                outline: none; /* 移除点击时的虚线框 */
-            }
-
-            #ScrollContent, #HeaderArea { 
-                background: transparent; 
-            }
-
-            /* --- 2. 顶部团队 ID 输入框 --- */
-            QLineEdit {
-                border: 1px solid #DCDFE6;
-                border-radius: 8px;
-                padding: 10px 15px;
-                background-color: #FFFFFF;
-                font-size: 11pt;
-                selection-background-color: #409EFF;
-            }
-            QLineEdit:focus { 
-                border: 1.5px solid #409EFF; 
-            }
-
-            /* --- 3. 任务卡片容器 --- */
-            #TaskCard {
-                background-color: #FFFFFF;
-                border: 1px solid #EBEEF5;
-                border-radius: 12px;
-            }
-            #TaskCard:hover { 
-                border-color: #409EFF; 
-            }
-
-            /* --- 4. 联动日期选择按钮 (还原 image_ad591e) --- */
-            #DateRangePickerTrigger {
-                background-color: #FFFFFF;
-                border: 1px solid #DCDFE6;
-                border-radius: 4px;
-                color: #606266;
-                text-align: left;      /* 文字左对齐 */
-                padding-left: 15px;    /* 留出左边距 */
-                font-size: 10pt;
-                height: 32px;
-            }
-            #DateRangePickerTrigger:hover { 
-                border-color: #C0C4CC; 
-                color: #409EFF;
-            }
-            #DateRangePickerTrigger:disabled { 
-                background-color: #F5F7FA; 
-                color: #C0C4CC; 
-                border-color: #E4E7ED;
-            }
-
-            /* --- 5. 卡片内的小导出按钮 (修复点击变白问题) --- */
-            #SingleExportButton {
-                background-color: #F0F7FF;
-                color: #409EFF;
-                border: 1px solid #D9ECFF;
-                border-radius: 4px;
-                font-weight: 500;
-                font-size: 9pt;
-            }
-            #SingleExportButton:hover { 
-                background-color: #E1EFFF; 
-                border-color: #B3D8FF;
-            }
-            #SingleExportButton:pressed { 
-                background-color: #409EFF; /* 点击时变为明显的蓝色 */
-                color: #FFFFFF;            /* 文字变白 */
-                border-color: #409EFF;
-            }
-            #SingleExportButton:disabled { 
-                background-color: #F5F7FA; 
-                color: #C0C4CC; 
-                border: none; 
-            }
-
-            /* --- 6. 底部固定状态栏 --- */
-            #BottomBar {
-                background-color: #FFFFFF;
-                border-top: 1px solid #EBEEF5;
-            }
-
-            /* --- 7. 底部全量批量导出按钮 (image_ad6789) --- */
-            #StartButton {
-                background-color: #409EFF;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-size: 12pt;
-                font-weight: bold;
-            }
-            #StartButton:hover { 
-                background-color: #66b1ff; 
-            }
-            #StartButton:pressed { 
-                background-color: #3a8ee6; 
-            }
-            #StartButton:disabled { 
-                background-color: #a0cfff; 
-            }
-
-            /* --- 8. 打开目录链接按钮 --- */
-            #OpenFolderButton {
-                background: transparent;
-                color: #409EFF;
-                border: none;
-                font-size: 10pt;
-                text-decoration: underline; /* 增加下划线模拟 Web 链接 */
-            }
-            #OpenFolderButton:hover { 
-                color: #66b1ff; 
-            }
-
-            /* --- 9. 状态标签与进度条 --- */
-            #StatusLabel { 
-                color: #909399; 
-                font-size: 10pt; 
-            }
-            #StatusLabelSmall { 
-                color: #909399; 
-                font-size: 9pt; 
-                background: transparent; 
-            }
-
-            QProgressBar {
-                background: #EBEEF5;
-                border: none;
-                border-radius: 2px;
-            }
-            QProgressBar::chunk {
-                background-color: #409EFF;
-                border-radius: 2px;
-            }
-
-            /* --- 10. 日历弹出面板美化 --- */
-            #CalendarMenu {
-                background-color: #FFFFFF;
-                border: 1px solid #EBEEF5;
-                border-radius: 8px;
-            }
-            QCalendarWidget QWidget { background-color: white; }
-            QCalendarWidget QToolButton {
-                color: #303133;
-                background: transparent;
-                border: none;
-                font-weight: bold;
-            }
-            QCalendarWidget QAbstractItemView {
-                selection-background-color: #409EFF;
-                selection-color: white;
-                outline: none;
-            }
-        """)
-
-        # 为所有任务卡片添加弥散阴影逻辑
-        for card in self.task_cards.values():
-            shadow = QGraphicsDropShadowEffect(card)
-            shadow.setBlurRadius(20)  # 阴影模糊程度
-            shadow.setXOffset(0)  # 水平偏移
-            shadow.setYOffset(4)  # 垂直偏移，产生悬浮感
-            shadow.setColor(QColor(0, 0, 0, 15))  # 极浅的黑色阴影
-            card.setGraphicsEffect(shadow)
+        main_layout.addLayout(bottom_layout)
 
 
     # --- 辅助方法：收集 UI 数据 ---
@@ -543,74 +353,60 @@ class BatchExportPage(QWidget):
             return None
 
     def _start_worker_thread(self, mode: str, task_key: str = None):
-        """启动 Worker 线程的通用逻辑"""
         team_ids = self._validate_inputs()
-        if team_ids is None:
+        if team_ids is None: return
+
+        # 1. 检查线程状态
+        if self.thread is not None and self.thread.isRunning():
             return
 
-        # 1. 检查是否有任务正在运行
-        if self.thread is not None and self.thread.isRunning():
-            reply = QMessageBox.question(
-                self, "任务运行中",
-                "已有任务在运行中，是否停止当前任务并开始新的任务？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self.stop_worker()
-                # 等待线程停止
-                for i in range(10):
-                    if self.thread is None or not self.thread.isRunning():
-                        break
-                    QThread.msleep(100)
-            else:
-                return
-
-        # 2. 准备参数
+        # 2. 获取参数 (确保这里的操作是瞬间完成的)
         date_params = self._collect_task_date_params()
-        task_keys = self._collect_active_task_keys()
 
-        # 3. 创建新的线程和 Worker
+        # 尝试获取 Cookie (假设这是一个静态或快速方法)
+        current_cookies = {}
+        try:
+            # 建议在初始化 Page 时就把 Cookie 来源对象传进来，而不是从 __main__ 动态 import
+            from __main__ import SettingsPage
+            current_cookies = SettingsPage.get_all_cookies()
+        except:
+            pass
+
         self.is_batch_mode = (mode == "batch")
         self.current_task_key = task_key
 
-        # 清理旧的线程和 Worker
-        if self.thread and self.thread.isRunning():
-            self.worker.stop()
-            self.thread.quit()
-            self.thread.wait(1000)
-
+        # 3. 创建 Worker 和 Thread
+        # 💡 注意：不再在构造函数传 output_dir，改用属性或参数，减少初始化开销
         self.thread = QThread()
         self.worker = BatchExporterWorker(self.export_folder)
-
-        # 4. 设置 Worker 的参数
-        self.worker.set_export_parameters(team_ids, date_params, task_keys)
+        self.worker.set_export_parameters(team_ids, date_params, current_cookies)
         self.worker.moveToThread(self.thread)
 
-        # 5. ✅ 连接 Worker 信号到主界面的槽函数（使用真实 Worker 的信号）
+        # 4. 信号绑定 (一定要在 thread.start 之前)
         self.worker.error_occurred.connect(self._handle_worker_error)
         self.worker.progress_update.connect(self.update_progress)
 
         if mode == "batch":
             self.worker.finished_batch.connect(self.thread_finished_batch)
             self.progress_bar.setMaximum(len(self.task_cards))
-        else:
-            self.worker.finished_single.connect(self.thread_finished_single)
-            self.progress_bar.setMaximum(1)
-            self.progress_bar.setValue(0)
-
-        # 6. 连接线程启动和清理信号
-        if mode == "batch":
             self.thread.started.connect(self.worker.run_batch)
         else:
-            self.thread.started.connect(lambda: self.worker.run_single(task_key))
+            self.worker.finished_single.connect(self.thread_finished_single)
+            self.progress_bar.setMaximum(100)
+            # 使用局部变量 key 捕获，防止 lambda 闭包陷阱
+            self.thread.started.connect(lambda k=task_key: self.worker.run_single(k))
 
+        # 资源清理：任务结束后退出线程并销毁对象
         self.worker.finished_single.connect(self.thread.quit)
         self.worker.finished_batch.connect(self.thread.quit)
         self.thread.finished.connect(self._on_thread_finished)
 
-        # 7. 启动线程
+        # 5. 更新 UI 状态
         self._set_ui_running_state(True, task_key=task_key)
+
+        # 6. 正式启动
         self.thread.start()
+        # ❌ 删除了 QApplication.processEvents()
 
     def _on_thread_finished(self):
         """线程完成后的清理"""

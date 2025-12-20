@@ -2,7 +2,6 @@ import sys
 import pandas as pd
 from datetime import datetime
 from typing import Dict
-import qtawesome as qta
 import threading
 import requests
 from PySide6.QtWidgets import (
@@ -22,6 +21,7 @@ import os
 from data_worker import DataWorker
 from xlsx_to_csv_page import XlsxToCsvPage
 from Export_data_page import BatchExportPage
+import qtawesome as qta
 
 # --- 设置页面 (SettingsPage) ---
 class SettingsPage(QWidget):
@@ -41,202 +41,94 @@ class SettingsPage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # QSettings 初始化需要 QApplication 的组织名和应用名
         QApplication.setOrganizationName("YourCompanyName")
         QApplication.setApplicationName("AutomationToolbox")
-        # QSettings 会自动找到合适的配置文件路径 (Windows: 注册表, Linux/macOS: ini 文件)
         self.settings = QSettings()
-
-        # 用于存储动态创建的输入框
         self.entry_fields: Dict[str, QLineEdit] = {}
 
         self._setup_ui()
         self.load_settings()
-        self.apply_styles()
-
-    def apply_styles(self):
-        """应用现代化样式"""
-        PRIMARY_COLOR = "#007AFF"
-        SUCCESS_COLOR = "#34C759"
-        PARSE_COLOR = "#E67E22"
-        BACKGROUND_COLOR = "#F0F4F7"
-
-        self.setStyleSheet(f"""
-            QWidget {{ background-color: {BACKGROUND_COLOR}; }}
-
-            QLabel {{ color: #2C3E50; font-family: "Microsoft YaHei"; font-size: 11pt; }}
-
-            /* 输入框 */
-            QLineEdit {{
-                border: 1px solid #D1D5DA;
-                border-radius: 6px;
-                padding: 8px 10px;
-                background-color: white;
-                font-size: 10pt;
-                min-height: 30px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {PRIMARY_COLOR};
-            }}
-
-            /* 文本编辑框 (用于粘贴 JSON) */
-            QTextEdit {{
-                border: 1px solid #D1D5DA;
-                border-radius: 6px;
-                padding: 8px;
-                background-color: white;
-                font-size: 10pt;
-            }}
-
-            /* 解析按钮 */
-            #ParseButton {{
-                background-color: {PARSE_COLOR};
-                color: white;
-                border-radius: 8px;
-                padding: 8px 10px;
-                font-weight: bold;
-            }}
-            #ParseButton:hover {{
-                background-color: #D35400;
-            }}
-
-            /* 保存按钮 */
-            #SaveButton {{
-                background-color: {SUCCESS_COLOR};
-                color: white;
-                border-radius: 10px;
-                padding: 12px;
-                font-weight: bold;
-                transition: background-color 0.2s;
-            }}
-            #SaveButton:hover {{
-                background-color: #2CAE4E;
-            }}
-        """)
+        # --- 注意：这里删除了 self.apply_styles()，全部交给 style.qss 处理 ---
 
     def _setup_ui(self):
-        # 1. 创建 SettingsPage 的主布局 (用于放置 QScrollArea)
+        # 1. 主背景布局 (透明，由 MainWindow 的底色填充)
         main_page_layout = QVBoxLayout(self)
-        main_page_layout.setContentsMargins(0, 0, 0, 0)  # 滚动区域的边距通常设为0
+        main_page_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 2. 创建一个内容容器 Widget，用于容纳所有表单元素
-        content_widget = QWidget()
-
-        # 3. 创建 ScrollArea，并设置 content_widget 为其内容
+        # 2. 滚动区域透明化，使其显示 MainWindow 的底色
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setWidget(content_widget)
+        scroll_area.setObjectName("SettingsScrollArea")  # 方便 QSS 统一定位
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # === 关键修改：应用美化后的样式 ===
-        SCROLLBAR_QSS = """
-                    QScrollBar:vertical {
-                        border: none;
-                        background: #F0F4F7; /* 背景颜色与页面背景匹配 */
-                        width: 10px; 
-                        margin: 0px 0px 0px 0px;
-                    }
+        # 3. 内容 Widget：这个 Widget 实际上就是那张“白色卡片”
+        content_widget = QWidget()
+        content_widget.setObjectName("ContentCanvas")  # 复用 MainWindow 定义的白色卡片 ID
 
-                    QScrollBar::handle:vertical {
-                        background: #A0A0A0; /* 滑块颜色：较深的灰色 */
-                        min-height: 20px;
-                        border-radius: 5px; 
-                    }
-
-                    QScrollBar::handle:vertical:hover {
-                        background: #808080; /* 悬停时颜色更深 */
-                    }
-
-                    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                        border: none;
-                        background: none;
-                    }
-
-                    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                        background: none;
-                    }
-                """
-        scroll_area.setStyleSheet(SCROLLBAR_QSS)
-
-        # 4. 创建内部布局 (原有的 QVBoxLayout)
         layout = QVBoxLayout(content_widget)
-        layout.setContentsMargins(50, 50, 50, 50)  # 设置内边距
-        layout.setSpacing(25)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
 
-        # 标题 (原代码)
+        # 4. 标题样式优化
         title = QLabel("⚙️ 应用程序设置")
-        title.setFont(QFont("Microsoft YaHei", 22, QFont.Bold))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setObjectName("SettingsTitle")  # 对应 QSS
         layout.addWidget(title)
 
-        # ----------------------------------------------------
-        # 1. JSON 粘贴区域 (原代码)
-        # ----------------------------------------------------
-        json_title = QLabel("步骤 1: 粘贴浏览器导出的 **完整 Cookie JSON 数据**")
-        json_title.setStyleSheet("font-weight: bold; color: #E67E22;")
+        # 5. JSON 粘贴区域
+        json_title = QLabel("步骤 1: 粘贴浏览器导出的 JSON 数据")
+        json_title.setObjectName("StepLabel")
         layout.addWidget(json_title)
 
         self.entry_json = QTextEdit()
         self.entry_json.setPlaceholderText("请将浏览器插件导出的 JSON 数据粘贴到此处...")
-        self.entry_json.setFixedHeight(150)
+        self.entry_json.setFixedHeight(120)
         layout.addWidget(self.entry_json)
 
         btn_parse = QPushButton("▶️ 解析并提取关键 Cookie")
-        btn_parse.setObjectName("ParseButton")
+        btn_parse.setObjectName("ActionButton")  # 复用 QSS 中的蓝色动作按钮
         btn_parse.clicked.connect(self.parse_json_cookies)
         layout.addWidget(btn_parse)
 
         layout.addWidget(self.create_separator())
 
-        # ----------------------------------------------------
-        # 2. 关键 Cookie 显示与手动输入区域 (原代码 - 修正布局后的版本)
-        # ----------------------------------------------------
-        cookie_title = QLabel("步骤 2: 关键 Cookie 值 (确认后保存)")
-        cookie_title.setStyleSheet("font-weight: bold; color: #007AFF;")
+        # 6. 关键 Cookie 输入区域
+        cookie_title = QLabel("步骤 2: 关键 Cookie 值")
+        cookie_title.setObjectName("StepLabel")
         layout.addWidget(cookie_title)
 
-        form_layout = QVBoxLayout()
-        form_layout.setSpacing(10)
-        LABEL_WIDTH = 220
+        form_container = QWidget()
+        form_layout = QVBoxLayout(form_container)
+        form_layout.setSpacing(12)
 
         for name in self.REQUIRED_COOKIES:
             hbox = QHBoxLayout()
-            hbox.setContentsMargins(0, 0, 0, 0)
-            hbox.setSpacing(10)
-
-            label = QLabel(name + ":")
-            label.setFixedWidth(LABEL_WIDTH)
-            label.setStyleSheet("font-weight: 500;")
+            label = QLabel(name)
+            label.setObjectName("CookieLabel")
 
             entry = QLineEdit()
-            entry.setPlaceholderText(f"将使用此 {name} 值进行爬取...")
-            entry.setObjectName(f"Entry_{name}")
-            entry.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            entry.setPlaceholderText(f"请输入 {name}")
             self.entry_fields[name] = entry
 
             hbox.addWidget(label)
-            hbox.addWidget(entry)
+            hbox.addWidget(entry, 1)  # 输入框占据剩余空间
             form_layout.addLayout(hbox)
 
-        layout.addLayout(form_layout)
+        layout.addWidget(form_container)
 
-        # ----------------------------------------------------
-        # 3. 保存按钮 (原代码)
-        # ----------------------------------------------------
+        # 7. 保存按钮
         btn_save = QPushButton("💾 保存配置")
-        btn_save.setObjectName("SaveButton")
+        btn_save.setObjectName("ActionButton")  # 复用蓝色按钮
+        btn_save.setFixedHeight(45)
         btn_save.clicked.connect(self.save_settings)
-        btn_save.setFixedHeight(50)
         layout.addWidget(btn_save)
 
         self.lbl_status = QLabel("")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setStyleSheet("color: #7f8c8d;")
         layout.addWidget(self.lbl_status)
 
-        layout.addStretch()  # 确保内容顶部对齐
+        layout.addStretch()
 
-        # 5. 将 ScrollArea 添加到 SettingsPage 的主布局
+        scroll_area.setWidget(content_widget)
         main_page_layout.addWidget(scroll_area)
 
     def create_separator(self):
@@ -588,251 +480,135 @@ class WideTablePage(QWidget):
             f"<font color='#27AE60'>🎉 数据处理成功！最终 DataFrame 包含 {len(df)} 行数据，文件已保存。</font>")  # 翠绿色成功
 
 
-
 class CrawlerPage(QWidget):
-    # 页面名称，方便在主窗口中识别
     PAGE_NAME = "风神离职数据"
-    DESC = "自动化获取骑手离职历史记录详情并导出"
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
         self.worker: CrawlerWorker = None
-
         self._setup_ui()
-        self.apply_styles()
-
-    def apply_styles(self):
-        """应用 Apple 风格的现代 UI 样式 (修复文字背景色问题)"""
-
-        # Apple Design System Colors
-        BG_COLOR = "#F5F5F7"  # 窗口大背景 (浅灰)
-        CARD_COLOR = "#FFFFFF"  # 卡片背景 (纯白)
-        TEXT_PRIMARY = "#1D1D1F"  # 主要文字
-        TEXT_SECONDARY = "#86868B"  # 次要文字
-        ACCENT_BLUE = "#0071E3"  # 苹果蓝
-        ACCENT_RED = "#FF3B30"  # 苹果红
-        INPUT_BG = "#F5F5F7"  # 输入框背景
-
-        self.setStyleSheet(f"""
-            /* 1. 全局基础样式 */
-            QWidget {{
-                background-color: {BG_COLOR}; 
-                color: {TEXT_PRIMARY};
-                font-family: "SF Pro Text", "Helvetica Neue", "Microsoft YaHei", sans-serif;
-            }}
-
-            /* 2. 【关键修复】强制所有标签背景透明 */
-            QLabel {{
-                background-color: transparent;
-            }}
-
-            /* 3. 核心卡片容器 (纯白背景) */
-            #MainContainer {{
-                background-color: {CARD_COLOR};
-                border-radius: 20px;
-                /* 阴影已通过 Python 代码添加 */
-            }}
-
-            /* 4. 标题样式 */
-            .page_title {{
-                color: {TEXT_PRIMARY};
-                font-size: 22pt;
-                font-weight: 600; 
-            }}
-
-            /* 5. 输入框上方的小标题 */
-            .input_label {{
-                font-size: 11pt;
-                font-weight: 500;
-                color: {TEXT_PRIMARY};
-                margin-bottom: 4px; /* 让标签和输入框稍微近一点 */
-            }}
-
-            /* 6. 输入框 (Apple 风格：浅灰底，无边框) */
-            QLineEdit {{
-                border: none;
-                border-radius: 10px;
-                padding: 12px 16px;
-                background-color: {INPUT_BG}; 
-                color: {TEXT_PRIMARY};
-                font-size: 11pt;
-            }}
-            QLineEdit:focus {{
-                background-color: #E8E8ED; /* 聚焦时稍微变深 */
-            }}
-
-            /* 7. 进度条 */
-            QProgressBar {{
-                border: none;
-                border-radius: 4px;
-                background-color: #E5E5EA; 
-                height: 6px;
-                text-align: center;
-            }}
-            QProgressBar::chunk {{
-                background-color: {ACCENT_BLUE}; 
-                border-radius: 4px;
-            }}
-
-            /* 8. 状态文字 */
-            #StatusLabel {{
-                font-size: 10pt;
-                color: {TEXT_SECONDARY};
-            }}
-
-            /* 9. 按钮基础 */
-            QPushButton {{
-                border-radius: 18px; 
-                padding: 10px 24px;
-                font-size: 11pt;
-                font-weight: 600; /* 字体加粗一点更有质感 */
-                border: none;
-            }}
-
-            /* 开始按钮 */
-            #StartButton {{
-                background-color: {ACCENT_BLUE};
-                color: white;
-            }}
-            #StartButton:hover {{ background-color: #0077ED; }}
-            #StartButton:pressed {{ background-color: #006ED6; }}
-
-            /* 停止按钮 (浅红背景 + 深红文字) */
-            #StopButton {{
-                background-color: rgba(255, 59, 48, 0.1); 
-                color: {ACCENT_RED};
-            }}
-            #StopButton:hover {{ background-color: rgba(255, 59, 48, 0.15); }}
-
-            /* 打开文件夹按钮 (幽灵按钮风格) */
-            #OpenButton {{
-                background-color: #F2F2F7;
-                color: {TEXT_PRIMARY};
-            }}
-            #OpenButton:hover {{ background-color: #E5E5EA; }}
-
-            /* 禁用状态 */
-            QPushButton:disabled {{
-                background-color: #F5F5F7;
-                color: #D1D1D6;
-            }}
-        """)
+        # --- 注意：彻底删除或注释掉 self.apply_styles() ---
 
     def _setup_ui(self):
-        # 外层布局用于居中
+        # 1. 顶层主布局：使用垂直布局并添加弹簧，使卡片在页面中心悬浮
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
-        # 弹簧将卡片顶到中间
-        outer_layout.addStretch()
+        outer_layout.addStretch(1)  # 顶层弹簧
 
-        # --- 核心卡片容器 ---
+        # 2. 核心内容卡片 (Content Canvas)
+        # 复用 style.qss 中的 #ContentCanvas 样式
         self.container_widget = QFrame()
-        self.container_widget.setObjectName("MainContainer")
-        self.container_widget.setFixedWidth(680)  # 稍微加宽
-        # 添加投影特效 (Shadow)
+        self.container_widget.setObjectName("ContentCanvas")
+        self.container_widget.setFixedWidth(720)  # 保持舒适的宽度
+
+        # 为卡片添加高级感阴影
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(40)
+        shadow.setBlurRadius(35)
         shadow.setXOffset(0)
         shadow.setYOffset(10)
-        shadow.setColor(QColor(0, 0, 0, 20))  # 非常淡的黑色阴影
+        shadow.setColor(QColor(0, 0, 0, 20))  # 极淡的黑色阴影
         self.container_widget.setGraphicsEffect(shadow)
 
+        # 卡片内部布局
         container_layout = QVBoxLayout(self.container_widget)
-        container_layout.setContentsMargins(50, 50, 50, 50)  # 内部大留白
-        container_layout.setSpacing(30)  # 元素间距拉大
+        container_layout.setContentsMargins(50, 45, 50, 50)  # 内部大留白更有呼吸感
+        container_layout.setSpacing(28)
 
-        # 1. 标题 (居中)
+        # 3. 标题区域 (居中显示)
         title_box = QHBoxLayout()
-        title_icon = QLabel("🍃")  # 用 Emoji 或者图标
-        title_icon.setStyleSheet("font-size: 28pt; background: transparent;")
-        title = QLabel("离职数据导出")
-        title.setObjectName("page_title")
+        title_icon = QLabel("🍃")
+        title_icon.setStyleSheet("font-size: 26pt; background: transparent; margin-right: 10px;")
+
+        title_text = QLabel("离职数据导出")
+        title_text.setObjectName("SettingsTitle")  # 复用设置页大标题样式（深灰色）
+
         title_box.addStretch()
         title_box.addWidget(title_icon)
-        title_box.addWidget(title)
+        title_box.addWidget(title_text)
         title_box.addStretch()
         container_layout.addLayout(title_box)
 
-        container_layout.addSpacing(10)
-
-        # 2. 文件名输入 (垂直排列更现代)
-        input_layout = QVBoxLayout()
-        input_layout.setSpacing(10)
+        # 4. 文件名输入区域
+        input_group = QVBoxLayout()
+        input_group.setSpacing(12)
 
         lbl_filename = QLabel("导出文件名")
-        lbl_filename.setObjectName("input_label")
+        lbl_filename.setObjectName("StepLabel")  # 复用设置页步骤标签样式
 
         self.entry_filename = QLineEdit()
-        self.entry_filename.setPlaceholderText("输入文件名...")
+        self.entry_filename.setPlaceholderText("请输入导出文件名...")
+        self.entry_filename.setFixedHeight(45)
+
+        # --- 关键修复：重新生成并设置默认文件名 ---
+        from datetime import datetime  # 确保已导入
         default_name = datetime.now().strftime("风神离职数据_%Y%m%d")
         self.entry_filename.setText(default_name)
+        # ---------------------------------------
 
-        input_layout.addWidget(lbl_filename)
-        input_layout.addWidget(self.entry_filename)
-        container_layout.addLayout(input_layout)
+        input_group.addWidget(lbl_filename)
+        input_group.addWidget(self.entry_filename)
+        container_layout.addLayout(input_group)
 
-        container_layout.addSpacing(10)
-
-        # 3. 按钮区域 (水平排列，大按钮)
+        # 5. 操作按钮区域 (开始与停止)
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
 
-        self.btn_start = QPushButton("开始导出")
-        self.btn_start.setObjectName("StartButton")
+        # 开始按钮：复用紫色 ActionButton 样式
+        self.btn_start = QPushButton("🚀 启动数据获取")
+        self.btn_start.setObjectName("ActionButton")
         self.btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_start.setFixedHeight(45)  # 加高按钮
-        # 绑定槽函数
+        self.btn_start.setFixedHeight(48)
         self.btn_start.clicked.connect(self.start_crawler)
 
+        # 停止按钮：复用红色 StopButton 样式 (在 style.qss 中定义的)
         self.btn_stop = QPushButton("停止")
         self.btn_stop.setObjectName("StopButton")
         self.btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_stop.setFixedHeight(45)
-        # 绑定槽函数
-        self.btn_stop.clicked.connect(self.stop_crawler)
+        self.btn_stop.setFixedHeight(48)
+        self.btn_stop.setFixedWidth(110)
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setFixedWidth(100)  # 停止按钮稍微小一点
+        self.btn_stop.clicked.connect(self.stop_crawler)
 
-        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_start, 1)  # 开始按钮占据主要宽度
         btn_layout.addWidget(self.btn_stop)
         container_layout.addLayout(btn_layout)
 
-        # 4. 进度条与状态 (分离布局)
-        status_layout = QVBoxLayout()
-        status_layout.setSpacing(15)
+        # 6. 进度与状态反馈区域
+        status_box = QVBoxLayout()
+        status_box.setSpacing(12)
+
+        self.lbl_status = QLabel("系统就绪，等待指令")
+        self.lbl_status.setObjectName("StatusLabel")  # 复用状态文本样式
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(False)  # 隐藏进度文字，更极简
+        self.progress_bar.setTextVisible(False)  # 极简风格，不显示百分比文字
+        self.progress_bar.setFixedHeight(8)
 
-        self.lbl_status = QLabel("准备就绪")
-        self.lbl_status.setObjectName("StatusLabel")
-        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_box.addWidget(self.lbl_status)
+        status_box.addWidget(self.progress_bar)
+        container_layout.addLayout(status_box)
 
-        status_layout.addWidget(self.lbl_status)  # 文字在上方
-        status_layout.addWidget(self.progress_bar)  # 细条在下方
-
-        container_layout.addLayout(status_layout)
-
-        # 5. 打开文件按钮 (作为底部链接式按钮)
-        link_layout = QHBoxLayout()
-        self.btn_open = QPushButton("📂 打开导出文件夹")
-        self.btn_open.setObjectName("OpenButton")
+        # 7. 底部辅助操作 (打开文件夹)
+        footer_layout = QHBoxLayout()
+        self.btn_open = QPushButton("📂 查看导出目录")
+        self.btn_open.setObjectName("SecondaryButton")  # 复用浅灰次要按钮样式
         self.btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_open.setFlat(True)  # 扁平化
-        # 绑定槽函数
-        self.btn_open.clicked.connect(self.open_output_directory)
         self.btn_open.setEnabled(False)
-        link_layout.addStretch()
-        link_layout.addWidget(self.btn_open)
-        link_layout.addStretch()
-        container_layout.addLayout(link_layout)
+        self.btn_open.clicked.connect(self.open_output_directory)
 
-        # 将卡片添加到外层
+        footer_layout.addStretch()
+        footer_layout.addWidget(self.btn_open)
+        footer_layout.addStretch()
+        container_layout.addLayout(footer_layout)
+
+        # 将配置好的卡片加入外层布局并居中
         outer_layout.addWidget(self.container_widget, alignment=Qt.AlignmentFlag.AlignCenter)
-        outer_layout.addStretch()
+
+        outer_layout.addStretch(1)  # 底层弹簧
 
 
 
@@ -909,7 +685,7 @@ class CrawlerPage(QWidget):
 
         if count > 0:
             self.lbl_status.setStyleSheet("color: #2ECC71; font-weight: bold;")
-            self.lbl_status.setText(f"✅ 任务完成！成功导出 {count} 条记录到：{os.path.basename(file_path)}")
+            self.lbl_status.setText(f" 任务完成！成功导出 {count} 条记录到：{os.path.basename(file_path)}")
             self.btn_open.setEnabled(True)
             self.last_output_path = file_path
             QMessageBox.information(self, "任务完成", f"数据已成功导出！共 {count} 条记录。")
@@ -1385,16 +1161,15 @@ class HomePage(QWidget):
         main_layout.addStretch()
 
 # --- 5. 主窗口：使用侧边栏布局 (MainWindow) ---
-
 class MainWindow(QMainWindow):
-    # 【核心 1】定义信号，必须定义在类属性中（__init__ 之外）
+    # 【核心 1】定义信号
     sig_status_update = Signal(str, str)
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Intelligent Middle Platform v2.0")
-        self.resize(1200, 780)  # 稍微收窄宽度，让侧边栏和两列卡片布局更紧凑
-        self.setMinimumSize(950, 650)
+        self.resize(1300, 780)
+        self.setMinimumSize(1220, 780)
 
         self.buttons = []
         self.page_names_to_index = {}
@@ -1410,188 +1185,198 @@ class MainWindow(QMainWindow):
             {"name": "设置", "icon": "fa5s.cog", "class": SettingsPage},
         ]
 
+        # UI 初始化顺序：先设UI，再连信号，最后调样式
         self._setup_ui()
         self._setup_tray()
-        self._init_status_bar()
         self.apply_external_style()
 
-        # 【核心 2】连接信号到 UI 更新函数
+        # 连接信号
         self.sig_status_update.connect(self.update_cookie_status)
 
         # 启动后延迟检测
         QTimer.singleShot(1000, self.check_cookie_realtime)
 
-    def apply_external_style(self):
-        style_path = os.path.join(os.path.dirname(__file__), "style.qss")
-        if os.path.exists(style_path):
-            with open(style_path, "r", encoding="utf-8") as f:
-                self.setStyleSheet(f.read())
-
     def _setup_ui(self):
         central_widget = QWidget()
+        central_widget.setObjectName("CentralWidget")
         self.main_layout = QHBoxLayout(central_widget)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        # 侧边栏
+        # --- 侧边栏 ---
         self.sidebar = QWidget()
         self.sidebar.setObjectName("SideBar")
-        self.sidebar.setFixedWidth(200)
+        self.sidebar.setFixedWidth(210)
         self.nav_layout = QVBoxLayout(self.sidebar)
-        self.nav_layout.setContentsMargins(0, 15, 0, 15)
-        self.nav_layout.setSpacing(2)
+        self.nav_layout.setContentsMargins(15, 25, 15, 25)
+        self.nav_layout.setSpacing(8)
 
-        # 内容区
-        self.content_outer_wrapper = QVBoxLayout()
-        self.content_outer_wrapper.setContentsMargins(15, 15, 15, 15)
-        self.content_container = QWidget()
-        self.content_container.setObjectName("ContentCanvas")
-        self.container_inner_layout = QVBoxLayout(self.content_container)
-        self.container_inner_layout.setContentsMargins(0, 0, 0, 0)
+        # 1. 顶部呼吸灯状态区
+        self._setup_breathing_light()
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 35))
-        shadow.setOffset(0, 4)
-        self.content_container.setGraphicsEffect(shadow)
-
+        # 2. 初始化 StackedWidget (必须在循环添加页面之前！)
         self.stacked_widget = QStackedWidget()
-        self.container_inner_layout.addWidget(self.stacked_widget)
-        self.content_outer_wrapper.addWidget(self.content_container)
 
+        # 3. 循环创建导航按钮和页面
         for i, conf in enumerate(self.page_config):
-            # --- 【核心修改 1】实例化时传入 self ---
-            # 这样 HomePage 内部可以通过 self.main_window 访问到 page_config
+            # 实例化页面
             page_inst = conf["class"](self)
-
-            # --- 【核心修改 2】连接首页的跳转信号 ---
-            # 检查页面实例是否有 navigate_to_page 信号 (通常只有 HomePage 有)
             if hasattr(page_inst, 'navigate_to_page'):
                 page_inst.navigate_to_page.connect(self.navigate_to_page_by_name)
 
             index = self.stacked_widget.addWidget(page_inst)
             self.page_names_to_index[conf["name"]] = index
 
-            # --- 侧边栏导航按钮保持原样 ---
+            # 创建按钮
             btn = QPushButton(f"  {conf['name']}")
-            btn.setIcon(qta.icon(conf["icon"], color='#BDC3C7', color_active='#007AFF'))
+            btn.setIcon(qta.icon(conf["icon"], color='#7F8C8D', color_active='#007AFF'))
             btn.setIconSize(QSize(18, 18))
             btn.setProperty("class", "NavButton")
-            # 闭包安全写法推荐：idx=index
-            btn.clicked.connect(lambda checked, idx=index: self.switch_page(idx))
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)
+            btn.setCursor(Qt.PointingHandCursor)
 
+            btn.clicked.connect(lambda checked, idx=index: self.switch_page(idx))
             self.nav_layout.addWidget(btn)
             self.buttons.append(btn)
 
         self.nav_layout.addStretch()
+
+        # --- 内容区容器 ---
+        self.content_outer_wrapper = QVBoxLayout()
+        self.content_outer_wrapper.setContentsMargins(25, 25, 25, 25)
+
+        self.content_container = QWidget()
+        self.content_container.setObjectName("ContentCanvas")
+        self.container_inner_layout = QVBoxLayout(self.content_container)
+        self.container_inner_layout.setContentsMargins(0, 0, 0, 0)  # 内部边距
+
+        # 强化阴影
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(45)
+        shadow.setColor(QColor(0, 0, 0, 20))
+        shadow.setOffset(0, 10)
+        self.content_container.setGraphicsEffect(shadow)
+
+        self.container_inner_layout.addWidget(self.stacked_widget)
+        self.content_outer_wrapper.addWidget(self.content_container)
+
         self.main_layout.addWidget(self.sidebar)
         self.main_layout.addLayout(self.content_outer_wrapper)
+
         self.setCentralWidget(central_widget)
         if self.buttons: self.switch_page(0)
 
-    def _init_status_bar(self):
-        """重新定义更现代的状态栏结构"""
-        self.status_bar = QStatusBar()
-        self.status_bar.setObjectName("ModernStatusBar")
-        self.setStatusBar(self.status_bar)
+    def _setup_breathing_light(self):
+        """初始化呼吸灯，确保圆形不走样且水平对齐菜单"""
+        self.status_header = QWidget()
+        status_header_layout = QHBoxLayout(self.status_header)
 
-        # 移除状态栏自带的分割线
-        self.status_bar.setStyleSheet("QStatusBar::item { border: none; }")
+        # 调整左边距：
+        # 侧边栏整体有 15px 边距，这里再加 12px 左右，
+        # 能让圆点中心与下方菜单图标中心完美垂直对齐。
+        status_header_layout.setContentsMargins(18, 5, 0, 15)
+        status_header_layout.setSpacing(12)
 
-        # 1. 状态标签容器 (药丸)
-        self.badge_widget = QWidget()
-        self.badge_widget.setObjectName("BadgeContainer")
-        self.badge_layout = QHBoxLayout(self.badge_widget)
-        self.badge_layout.setContentsMargins(12, 3, 12, 3)  # 减小垂直外边距
-        self.badge_layout.setSpacing(6)
+        # 呼吸灯圆点
+        self.dot_light = QLabel()
+        # 严格限制长宽相等，防止拉伸成方块
+        self.dot_light.setFixedSize(8, 8)
 
-        self.status_icon = QLabel()
-        self.status_text = QLabel("正在同步")
-        self.status_text.setStyleSheet("font-family: 'Segoe UI', 'PingFang SC'; font-weight: 500; font-size: 12px;")
+        # 初始灰色状态，强制设置 border-radius 为高度的一半
+        self.dot_light.setStyleSheet("""
+            background-color: #BDC3C7; 
+            border-radius: 4px; 
+            border: none;
+        """)
 
-        self.badge_layout.addWidget(self.status_icon)
-        self.badge_layout.addWidget(self.status_text)
+        # 状态文字
+        self.status_text_label = QLabel("正在同步")
+        self.status_text_label.setStyleSheet("""
+            font-size: 13px; 
+            font-weight: 600; 
+            color: #7F8C8D;
+            background: transparent;
+        """)
 
-        # 2. 辅助信息容器
-        self.info_label = QLabel("Eleme Automator v2.0")
-        self.info_label.setStyleSheet("color: #95A5A6; font-size: 11px; margin-right: 15px;")
+        status_header_layout.addWidget(self.dot_light)
+        status_header_layout.addWidget(self.status_text_label)
+        status_header_layout.addStretch()
 
-        # 组装到状态栏
-        self.status_bar.addWidget(self.badge_widget)
-        self.status_bar.addPermanentWidget(self.info_label)
+        self.nav_layout.addWidget(self.status_header)
+
+        # 动画逻辑...
+        self.opacity_effect = QGraphicsOpacityEffect(self.dot_light)
+        self.dot_light.setGraphicsEffect(self.opacity_effect)
+        self.breathing_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.breathing_anim.setDuration(1500)
+        self.breathing_anim.setStartValue(0.3)
+        self.breathing_anim.setEndValue(1.0)
+        self.breathing_anim.setLoopCount(-1)
+        self.breathing_anim.setEasingCurve(QEasingCurve.InOutQuad)
+        self.breathing_anim.start()
 
     @Slot(str, str)
     def update_cookie_status(self, status: str, text: str):
-        """现代化的状态切换逻辑：更高级的配色方案"""
-        # 调色盘：使用了更高级的莫兰迪色系/淡色系
         configs = {
-            "valid": {
-                "color": "#10B981", "bg": "rgba(16, 185, 129, 0.12)",
-                "border": "rgba(16, 185, 129, 0.3)", "icon": "fa5s.check-circle"
-            },
-            "invalid": {
-                "color": "#EF4444", "bg": "rgba(239, 68, 68, 0.12)",
-                "border": "rgba(239, 68, 68, 0.3)", "icon": "fa5s.times-circle"
-            },
-            "loading": {
-                "color": "#3B82F6", "bg": "rgba(59, 130, 246, 0.12)",
-                "border": "rgba(59, 130, 246, 0.3)", "icon": "fa5s.sync-alt"
-            },
-            "error": {
-                "color": "#F59E0B", "bg": "rgba(245, 158, 11, 0.12)",
-                "border": "rgba(245, 158, 11, 0.3)", "icon": "fa5s.exclamation-triangle"
-            }
+            "valid": {"color": "#10B981", "label": "#2C3E50", "speed": 1800},
+            "invalid": {"color": "#EF4444", "label": "#EF4444", "speed": 600},
+            "loading": {"color": "#3B82F6", "label": "#7F8C8D", "speed": 1000},
+            "error": {"color": "#F59E0B", "label": "#D97706", "speed": 1200}
         }
         cfg = configs.get(status, configs["error"])
 
-        # 更新图标（带抗锯齿感）
-        self.status_icon.setPixmap(qta.icon(cfg["icon"], color=cfg["color"]).pixmap(14, 14))
-        self.status_text.setText(text)
-        self.status_text.setStyleSheet(f"color: {cfg['color']}; background: transparent;")
+        # 关键修复：每次更新背景色都要带上 border-radius
+        self.dot_light.setStyleSheet(f"""
+                background-color: {cfg['color']}; 
+                border-radius: 4px; 
+            """)
 
-        # 更新容器外观：使用更现代的边框和背景混合
-        self.badge_widget.setStyleSheet(f"""
-            QWidget#BadgeContainer {{
-                background-color: {cfg['bg']};
-                border: 1px solid {cfg['border']};
-                border-radius: 14px;
-                margin: 4px 0px;
-            }}
-        """)
+        self.status_text_label.setText(text)
+        self.status_text_label.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {cfg['label']};")
 
-        # 强制重绘
-        self.badge_widget.style().unpolish(self.badge_widget)
-        self.badge_widget.style().polish(self.badge_widget)
+        # 动态调整速度
+        self.breathing_anim.stop()
+        self.breathing_anim.setDuration(cfg['speed'])
+        self.breathing_anim.start()
+
+    # --- 以下是原有逻辑方法，保持不变 ---
+    def apply_external_style(self):
+        style_path = os.path.join(os.path.dirname(__file__), "style.qss")
+        if os.path.exists(style_path):
+            with open(style_path, "r", encoding="utf-8") as f:
+                self.setStyleSheet(f.read())
 
     def check_cookie_realtime(self):
-        """骑手接口检测逻辑"""
-        # 发射加载中信号
         self.sig_status_update.emit("loading", "正在检测")
 
         def run_check():
             try:
-                # 假设 SettingsPage 有 get_all_cookies 静态方法
                 cookies = SettingsPage.get_all_cookies()
                 url = "https://httpizza.ele.me/lpd.meepo.mgmt/knight/queryKnightDimissionRecords"
-                params = {'pageIndex': 1, 'pageSize': 20}
-
-                res = requests.get(url, params=params, cookies=cookies, timeout=5)
-
-                if res.status_code == 200:
-                    data = res.json()
-                    if str(data.get('code')) == '200':
-                        # 【核心 4】子线程中仅通过信号通知 UI
-                        self.sig_status_update.emit("valid", "已连接")
-                    else:
-                        self.sig_status_update.emit("invalid", "令牌失效")
+                res = requests.get(url, params={'pageIndex': 1, 'pageSize': 20}, cookies=cookies, timeout=5)
+                if res.status_code == 200 and str(res.json().get('code')) == '200':
+                    print(res.json())
+                    self.sig_status_update.emit("valid", "服务已连接")
                 else:
-                    self.sig_status_update.emit("invalid", f"错误 {res.status_code}")
-            except Exception as e:
-                print(f"Check Error Details: {e}")
-                self.sig_status_update.emit("error", "网络超时")
+                    self.sig_status_update.emit("invalid", "令牌已失效")
+            except:
+                self.sig_status_update.emit("error", "网络连接异常")
 
-        # 使用守护线程避免关闭窗口时卡死
         threading.Thread(target=run_check, daemon=True).start()
+
+    @Slot(int)
+    def switch_page(self, index):
+        self.stacked_widget.setCurrentIndex(index)
+        for i, btn in enumerate(self.buttons):
+            btn.setProperty("active", i == index)
+            btn.setChecked(i == index)
+            btn.style().polish(btn)
+
+    @Slot(str)
+    def navigate_to_page_by_name(self, name):
+        if name in self.page_names_to_index:
+            self.switch_page(self.page_names_to_index[name])
 
     def _setup_tray(self):
         self.tray_icon = QSystemTrayIcon(self)
@@ -1601,26 +1386,6 @@ class MainWindow(QMainWindow):
         menu.addAction("彻底退出", QApplication.instance().quit)
         self.tray_icon.setContextMenu(menu)
         self.tray_icon.show()
-
-    def changeEvent(self, event):
-        if event.type() == QEvent.WindowStateChange and self.windowState() & Qt.WindowMinimized:
-            self.hide()
-            event.accept()
-            return
-        super().changeEvent(event)
-
-    @Slot(int)
-    def switch_page(self, index):
-        self.stacked_widget.setCurrentIndex(index)
-        for i, btn in enumerate(self.buttons):
-            btn.setProperty("active", i == index)
-            btn.style().polish(btn)
-
-    @Slot(str)
-    def navigate_to_page_by_name(self, name):
-        if name in self.page_names_to_index:
-            self.switch_page(self.page_names_to_index[name])
-
 
 # --- 应用程序启动 ---
 if __name__ == "__main__":
@@ -1633,7 +1398,7 @@ if __name__ == "__main__":
 
     # 2. 设置全局字体 (配置应用)
     # 建议使用更现代的字体或与您的 Apple 风格匹配的字体栈
-    app.setFont(QFont("Microsoft YaHei", 10))
+    app.setFont(QFont("Microsoft YaHei UI", 10))
 
     # 3. 实例化并显示主窗口
     window = MainWindow()
