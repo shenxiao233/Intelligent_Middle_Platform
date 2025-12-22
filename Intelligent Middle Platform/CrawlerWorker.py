@@ -96,13 +96,20 @@ class CrawlerWorker(threading.Thread):
     def run(self):
         """线程执行的主逻辑 (爬虫主体)"""
 
-        # 1. 动态获取 Cookie 值
-        cookies_dict = SettingsPage.get_all_cookies()
+        target_site = "风神"
+        cookies_dict = SettingsPage.get_all_cookies(target_site)
 
-        # 检查最关键的 Token 是否存在
-        main_token = SettingsPage.REQUIRED_COOKIES[0]
-        if not cookies_dict.get(main_token):
-            self.signals.error_signal.emit(f"配置错误：请先在【设置】页面配置并保存关键 Cookie ({main_token} 不能为空)。")
+        # 动态获取该站点定义的第一个必填 Key 名
+        required_keys = SettingsPage.SITE_CONFIGS.get(target_site, [])
+        if not required_keys:
+            self.signals.error_signal.emit(f"错误：未在 SITE_CONFIGS 中定义站点【{target_site}】")
+            return
+
+        main_token_name = required_keys[0]  # 自动获取列表第一个，如 "AEOLUS_MOZI_TOKEN"
+
+        # 检查值
+        if not cookies_dict.get(main_token_name):
+            self.signals.error_signal.emit(f"配置错误：【{target_site}】的关键 Cookie ({main_token_name}) 缺失。")
             return
 
         all_records = []

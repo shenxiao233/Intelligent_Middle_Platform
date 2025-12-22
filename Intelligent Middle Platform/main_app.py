@@ -1,240 +1,24 @@
 import sys
 import pandas as pd
-from datetime import datetime
-from typing import Dict
 import threading
 import requests
 from PySide6.QtWidgets import (
     QApplication, QMainWindow,QFrame,QGraphicsDropShadowEffect, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QGridLayout,QPushButton, QMessageBox, QFileDialog, QSizePolicy,
     QStackedWidget, QGraphicsOpacityEffect,QSystemTrayIcon,QMenu,
-    QProgressBar,QStatusBar
+    QProgressBar
 )
 from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QSize
 from PySide6.QtCore import QSettings, QEvent,QTimer
 from PySide6.QtWidgets import QTextEdit # 新增导入
-import json # 新增导入
-from PySide6.QtWidgets import QScrollArea # 确保在您的导入列表中
 from PySide6.QtCore import Qt, Signal, QObject, Slot,QThreadPool
 from PySide6.QtGui import QFont, QColor,QFontMetrics
 import os
+from SettingsPage import  SettingsPage
 from data_worker import DataWorker
 from xlsx_to_csv_page import XlsxToCsvPage
 from Export_data_page import BatchExportPage
 import qtawesome as qta
-
-# --- 设置页面 (SettingsPage) ---
-class SettingsPage(QWidget):
-    PAGE_NAME = "设置"
-    # 静态配置的 Cookie 字段名列表
-    REQUIRED_COOKIES = [
-        "AEOLUS_MOZI_TOKEN",
-        "xlly_s",
-        "PASSPORT_TOKEN",
-        "PASSPORT_AGENTS_TOKEN",
-        "cna",
-        "isg",
-        # 如果还有其他关键 Cookie 也可以加在这里
-    ]
-
-    SETTINGS_GROUP = "CrawlerSettings"
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        QApplication.setOrganizationName("YourCompanyName")
-        QApplication.setApplicationName("AutomationToolbox")
-        self.settings = QSettings()
-        self.entry_fields: Dict[str, QLineEdit] = {}
-
-        self._setup_ui()
-        self.load_settings()
-        # --- 注意：这里删除了 self.apply_styles()，全部交给 style.qss 处理 ---
-
-    def _setup_ui(self):
-        # 1. 主背景布局 (透明，由 MainWindow 的底色填充)
-        main_page_layout = QVBoxLayout(self)
-        main_page_layout.setContentsMargins(0, 0, 0, 0)
-
-        # 2. 滚动区域透明化，使其显示 MainWindow 的底色
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setObjectName("SettingsScrollArea")  # 方便 QSS 统一定位
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # 3. 内容 Widget：这个 Widget 实际上就是那张“白色卡片”
-        content_widget = QWidget()
-        content_widget.setObjectName("ContentCanvas")  # 复用 MainWindow 定义的白色卡片 ID
-
-        layout = QVBoxLayout(content_widget)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
-
-        # 4. 标题样式优化
-        title = QLabel("⚙️ 应用程序设置")
-        title.setObjectName("SettingsTitle")  # 对应 QSS
-        layout.addWidget(title)
-
-        # 5. JSON 粘贴区域
-        json_title = QLabel("步骤 1: 粘贴浏览器导出的 JSON 数据")
-        json_title.setObjectName("StepLabel")
-        layout.addWidget(json_title)
-
-        self.entry_json = QTextEdit()
-        self.entry_json.setPlaceholderText("请将浏览器插件导出的 JSON 数据粘贴到此处...")
-        self.entry_json.setFixedHeight(120)
-        layout.addWidget(self.entry_json)
-
-        btn_parse = QPushButton("▶️ 解析并提取关键 Cookie")
-        btn_parse.setObjectName("ActionButton")  # 复用 QSS 中的蓝色动作按钮
-        btn_parse.clicked.connect(self.parse_json_cookies)
-        layout.addWidget(btn_parse)
-
-        layout.addWidget(self.create_separator())
-
-        # 6. 关键 Cookie 输入区域
-        cookie_title = QLabel("步骤 2: 关键 Cookie 值")
-        cookie_title.setObjectName("StepLabel")
-        layout.addWidget(cookie_title)
-
-        form_container = QWidget()
-        form_layout = QVBoxLayout(form_container)
-        form_layout.setSpacing(12)
-
-        for name in self.REQUIRED_COOKIES:
-            hbox = QHBoxLayout()
-            label = QLabel(name)
-            label.setObjectName("CookieLabel")
-
-            entry = QLineEdit()
-            entry.setPlaceholderText(f"请输入 {name}")
-            self.entry_fields[name] = entry
-
-            hbox.addWidget(label)
-            hbox.addWidget(entry, 1)  # 输入框占据剩余空间
-            form_layout.addLayout(hbox)
-
-        layout.addWidget(form_container)
-
-        # 7. 保存按钮
-        btn_save = QPushButton("💾 保存配置")
-        btn_save.setObjectName("ActionButton")  # 复用蓝色按钮
-        btn_save.setFixedHeight(45)
-        btn_save.clicked.connect(self.save_settings)
-        layout.addWidget(btn_save)
-
-        self.lbl_status = QLabel("")
-        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.lbl_status)
-
-        layout.addStretch()
-
-        scroll_area.setWidget(content_widget)
-        main_page_layout.addWidget(scroll_area)
-
-    def create_separator(self):
-        line = QLabel()
-        line.setFixedHeight(1)
-        line.setStyleSheet("background-color: #D1D5DA; margin-top: 5px; margin-bottom: 5px;")
-        return line
-
-    def parse_json_cookies(self):
-        """解析粘贴的 JSON 数组，提取关键 Cookie 值"""
-        json_text = self.entry_json.toPlainText().strip()
-        if not json_text:
-            QMessageBox.warning(self, "解析失败", "请先将 JSON 数据粘贴到上方的文本框中。")
-            return
-
-        try:
-            cookie_array = json.loads(json_text)
-            if not isinstance(cookie_array, list):
-                raise ValueError("JSON 格式不正确，应为 Cookie 对象数组。")
-
-            extracted_values = {}
-            found_count = 0
-
-            for cookie in cookie_array:
-                name = cookie.get("name")
-                value = cookie.get("value")
-
-                if name in self.REQUIRED_COOKIES and value:
-                    extracted_values[name] = value
-                    found_count += 1
-
-            if not extracted_values:
-                QMessageBox.critical(self, "解析失败",
-                                     "未找到任何所需的关键 Cookie (如 AEOLUS_MOZI_TOKEN)。请检查粘贴的数据是否完整。")
-                return
-
-            # 将提取的值填充到输入框中
-            for name, entry in self.entry_fields.items():
-                entry.setText(extracted_values.get(name, ''))
-
-            self.lbl_status.setText(f"✅ 成功解析 JSON，找到 {found_count} 个关键 Cookie。请点击保存。")
-            self.lbl_status.setStyleSheet("color: #2ecc71; font-weight: bold;")
-
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "解析错误", "JSON 数据格式不正确，请确保粘贴了完整的、有效的 JSON 数组。")
-        except ValueError as e:
-            QMessageBox.critical(self, "数据错误", str(e))
-        except Exception as e:
-            QMessageBox.critical(self, "未知错误", f"解析时发生未知错误: {e}")
-
-    def load_settings(self):
-        """从 QSettings 加载保存的配置"""
-        self.settings.beginGroup(self.SETTINGS_GROUP)
-        found_count = 0
-        for name, entry in self.entry_fields.items():
-            # QSettings.value 返回的是字符串或 QVariant，在 Python 中通常自动转换为字符串
-            cookie_value = self.settings.value(name, "")
-            entry.setText(cookie_value)
-            if cookie_value:
-                found_count += 1
-        self.settings.endGroup()
-
-        if found_count > 0:
-            self.lbl_status.setText(f"配置已加载，找到 {found_count} 个已保存的 Cookie。")
-        else:
-            self.lbl_status.setText("没有找到已保存的配置。")
-
-    def save_settings(self):
-        """保存配置到 QSettings"""
-        # 简单检查主 Token 是否为空
-        main_token_value = self.entry_fields.get(self.REQUIRED_COOKIES[0]).text().strip()
-        if not main_token_value:
-            QMessageBox.warning(self, "警告", f"主 Token ({self.REQUIRED_COOKIES[0]}) 不能为空。")
-            return
-
-        self.settings.beginGroup(self.SETTINGS_GROUP)
-
-        saved_count = 0
-        for name, entry in self.entry_fields.items():
-            value = entry.text().strip()
-            self.settings.setValue(name, value)
-            if value:
-                saved_count += 1
-
-        self.settings.endGroup()
-
-        QMessageBox.information(self, "成功", f"配置已成功保存！共保存 {saved_count} 个 Cookie 值。")
-        self.lbl_status.setText("配置已保存。下次爬取将使用此值。")
-
-    @staticmethod
-    def get_all_cookies() -> Dict[str, str]:
-        """静态方法：供外部（如 CrawlerWorker）调用以获取完整的 Cookie 字典"""
-        # 必须重新实例化 QSettings，因为静态方法在任何地方都可能被调用
-        settings = QSettings()
-        settings.beginGroup(SettingsPage.SETTINGS_GROUP)
-
-        all_cookies = {}
-        # 遍历所有需要的键，从设置中读取
-        for key in SettingsPage.REQUIRED_COOKIES:
-            # 确保获取到的值是字符串类型
-            value = str(settings.value(key, ""))
-            if value:
-                all_cookies[key] = value
-
-        settings.endGroup()
-        return all_cookies
 
 
 # --- 1. 继承之前的拖拽输入框类 ---
@@ -1352,7 +1136,9 @@ class MainWindow(QMainWindow):
 
         def run_check():
             try:
-                cookies = SettingsPage.get_all_cookies()
+                # cookies = SettingsPage.get_all_cookies()
+                cookies = SettingsPage.get_all_cookies("风神")
+
                 url = "https://httpizza.ele.me/lpd.meepo.mgmt/knight/queryKnightDimissionRecords"
                 res = requests.get(url, params={'pageIndex': 1, 'pageSize': 20}, cookies=cookies, timeout=5)
                 if res.status_code == 200 and str(res.json().get('code')) == '200':

@@ -368,7 +368,7 @@ class BatchExportPage(QWidget):
         try:
             # 建议在初始化 Page 时就把 Cookie 来源对象传进来，而不是从 __main__ 动态 import
             from __main__ import SettingsPage
-            current_cookies = SettingsPage.get_all_cookies()
+            current_cookies = SettingsPage.get_all_cookies("风神")
         except:
             pass
 
