@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QProgressBar
 )
 from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QSize
-from PySide6.QtCore import QSettings, QEvent,QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QTextEdit # 新增导入
 from PySide6.QtCore import Qt, Signal, QObject, Slot,QThreadPool
 from PySide6.QtGui import QFont, QColor,QFontMetrics
@@ -18,6 +18,7 @@ from SettingsPage import  SettingsPage
 from data_worker import DataWorker
 from xlsx_to_csv_page import XlsxToCsvPage
 from Export_data_page import BatchExportPage
+from xuanyuna_page import ExportWorkspacePage
 import qtawesome as qta
 
 
@@ -951,6 +952,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        # 核心 1：无边框
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        # 核心 2：允许透明，这是去掉最外层“方壳子”的关键
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
         self.setWindowTitle("Intelligent Middle Platform v2.0")
         self.resize(1300, 780)
         self.setMinimumSize(1220, 780)
@@ -963,6 +969,7 @@ class MainWindow(QMainWindow):
             {"name": "首页", "icon": "fa5s.home", "class": HomePage},
             {"name": "风神离职数据", "icon": "fa5s.user-minus", "class": CrawlerPage},
             {"name": "批量数据导出", "icon": "fa5s.cloud-download-alt", "class": BatchExportPage},
+            {"name": "轩辕数据", "icon": "fa5s.database", "class": ExportWorkspacePage},
             {"name": "B端数据处理", "icon": "fa5s.project-diagram", "class": MergePage},
             {"name": "宽表导出", "icon": "fa5s.th-list", "class": WideTablePage},
             {"name": "CSV极速导出", "icon": "fa5s.file-excel", "class": XlsxToCsvPage},
@@ -981,29 +988,112 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1000, self.check_cookie_realtime)
 
     def _setup_ui(self):
-        central_widget = QWidget()
-        central_widget.setObjectName("CentralWidget")
-        self.main_layout = QHBoxLayout(central_widget)
+        # --- 核心：建立一个带有圆角的实体外壳 ---
+        self.central_widget = QWidget()
+        self.central_widget.setObjectName("CentralWidget")
+        # 这里是修复限制线和圆角的关键
+        self.central_widget.setStyleSheet("""
+            #CentralWidget {
+                background-color: #F8F9FA; 
+                border-radius: 12px;
+                border: 1px solid #E0E0E0; /* 可选：给个极细的淡灰色边框，比黑边好看 */
+            }
+        """)
+
+        # 主布局，必须没有边距，否则会出现黑圈
+        self.main_layout = QHBoxLayout(self.central_widget)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        # --- 侧边栏 ---
+        # --- 1. 侧边栏 ---
         self.sidebar = QWidget()
         self.sidebar.setObjectName("SideBar")
         self.sidebar.setFixedWidth(210)
+        # 侧边栏左侧也需要设置圆角，否则会盖住外壳的圆角
+        self.sidebar.setStyleSheet("""
+            #SideBar { 
+                background: transparent; 
+                border-top-left-radius: 12px; 
+                border-bottom-left-radius: 12px; 
+            }
+        """)
         self.nav_layout = QVBoxLayout(self.sidebar)
         self.nav_layout.setContentsMargins(15, 25, 15, 25)
         self.nav_layout.setSpacing(8)
-
-        # 1. 顶部呼吸灯状态区
         self._setup_breathing_light()
 
-        # 2. 初始化 StackedWidget (必须在循环添加页面之前！)
-        self.stacked_widget = QStackedWidget()
+        # --- 2. 右侧内容区 (注意：只定义这一次 layout) ---
+        self.content_outer_wrapper = QVBoxLayout()
+        self.content_outer_wrapper.setContentsMargins(20, 0, 20, 20)  # 顶部改为0，由控制栏控制
+        self.content_outer_wrapper.setSpacing(0)
 
-        # 3. 循环创建导航按钮和页面
+        # --- 3. 标准控制栏 (使用 msc 矢量图标) ---
+        self.window_controls = QHBoxLayout()
+        self.window_controls.setContentsMargins(0, 0, 0, 0)
+        self.window_controls.setSpacing(0)
+        self.window_controls.addStretch()
+
+        # 统一按钮样式
+        ctrl_btn_style = """
+                QPushButton {
+                    background: transparent; border: none;
+                    min-width: 45px; max-width: 45px; height: 32px;
+                }
+                QPushButton:hover { background-color: #E5E5E5; }
+            """
+
+        # 1. 最小化
+        self.btn_min = QPushButton()
+        # msc.chrome-minimize 是一条极细的横线
+        self.btn_min.setIcon(qta.icon('msc.chrome-minimize', color='#666666'))
+        self.btn_min.setIconSize(QSize(16, 16))
+        self.btn_min.setStyleSheet(ctrl_btn_style)
+        self.btn_min.clicked.connect(self.showMinimized)
+
+        # 2. 最大化
+        self.btn_max = QPushButton()
+        # msc.chrome-maximize 是标准的细线正方形
+        self.btn_max.setIcon(qta.icon('msc.chrome-maximize', color='#666666'))
+        self.btn_max.setIconSize(QSize(16, 16))
+        self.btn_max.setStyleSheet(ctrl_btn_style)
+        self.btn_max.clicked.connect(self.toggle_maximized)
+
+        # 3. 关闭
+        self.btn_close = QPushButton()
+        self.btn_close.setIcon(qta.icon('msc.chrome-close', color='#666666', color_active='white'))
+        self.btn_close.setIconSize(QSize(16, 16))
+        self.btn_close.setStyleSheet(ctrl_btn_style + """
+                QPushButton:hover { 
+                    background-color: #E81123; 
+                    border-top-right-radius: 12px; 
+                }
+            """)
+        self.btn_close.clicked.connect(self.close)
+
+        self.window_controls.addWidget(self.btn_min)
+        self.window_controls.addWidget(self.btn_max)
+        self.window_controls.addWidget(self.btn_close)
+
+        # --- 4. 页面主体白板容器 (ContentCanvas) ---
+        self.content_container = QWidget()
+        self.content_container.setObjectName("ContentCanvas")
+        self.container_inner_layout = QVBoxLayout(self.content_container)
+        self.container_inner_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.stacked_widget = QStackedWidget()
+        self.container_inner_layout.addWidget(self.stacked_widget)
+
+        # 阴影效果
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(35)
+        shadow.setColor(QColor(0, 0, 0, 25))
+        shadow.setOffset(0, 8)
+        self.content_container.setGraphicsEffect(shadow)
+
+        self.content_outer_wrapper.addWidget(self.content_container)
+
+        # --- 5. 循环创建按钮逻辑 ---
         for i, conf in enumerate(self.page_config):
-            # 实例化页面
             page_inst = conf["class"](self)
             if hasattr(page_inst, 'navigate_to_page'):
                 page_inst.navigate_to_page.connect(self.navigate_to_page_by_name)
@@ -1011,7 +1101,6 @@ class MainWindow(QMainWindow):
             index = self.stacked_widget.addWidget(page_inst)
             self.page_names_to_index[conf["name"]] = index
 
-            # 创建按钮
             btn = QPushButton(f"  {conf['name']}")
             btn.setIcon(qta.icon(conf["icon"], color='#7F8C8D', color_active='#007AFF'))
             btn.setIconSize(QSize(18, 18))
@@ -1019,37 +1108,90 @@ class MainWindow(QMainWindow):
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
             btn.setCursor(Qt.PointingHandCursor)
-
             btn.clicked.connect(lambda checked, idx=index: self.switch_page(idx))
+
             self.nav_layout.addWidget(btn)
             self.buttons.append(btn)
 
         self.nav_layout.addStretch()
 
-        # --- 内容区容器 ---
-        self.content_outer_wrapper = QVBoxLayout()
-        self.content_outer_wrapper.setContentsMargins(25, 25, 25, 25)
-
-        self.content_container = QWidget()
-        self.content_container.setObjectName("ContentCanvas")
-        self.container_inner_layout = QVBoxLayout(self.content_container)
-        self.container_inner_layout.setContentsMargins(0, 0, 0, 0)  # 内部边距
-
-        # 强化阴影
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(45)
-        shadow.setColor(QColor(0, 0, 0, 20))
-        shadow.setOffset(0, 10)
-        self.content_container.setGraphicsEffect(shadow)
-
-        self.container_inner_layout.addWidget(self.stacked_widget)
-        self.content_outer_wrapper.addWidget(self.content_container)
-
+        # --- 6. 最终装配 (重新调整顺序) ---
+        # 先把侧边栏加进去
         self.main_layout.addWidget(self.sidebar)
-        self.main_layout.addLayout(self.content_outer_wrapper)
 
-        self.setCentralWidget(central_widget)
-        if self.buttons: self.switch_page(0)
+        # 创建一个新的垂直布局来包裹整个右侧区域
+        self.right_main_container = QWidget()
+        self.right_layout = QVBoxLayout(self.right_main_container)
+        self.right_layout.setContentsMargins(0, 0, 0, 0)
+        self.right_layout.setSpacing(0)
+
+        # 1. 先把按钮栏放最上面
+        # 注意：这里直接把 window_controls 作为一个独立的 Widget 包装，防止它被下方阴影覆盖
+        self.controls_widget = QWidget()
+        self.controls_widget.setLayout(self.window_controls)
+        self.right_layout.addWidget(self.controls_widget)
+
+        # 2. 再把原本的内容区内容加进去
+        self.right_layout.addLayout(self.content_outer_wrapper)
+
+        # 3. 最后把这个右侧大容器加入主布局
+        self.main_layout.addWidget(self.right_main_container)
+
+        self.setCentralWidget(self.central_widget)
+
+    def toggle_maximized(self):
+        """
+        使用强制状态位切换，解决无边框窗口点击两次才能还原的问题
+        """
+        if self.isMaximized():
+            # 关键：显式设置为 NoState (还原到正常窗口状态)
+            self.setWindowState(Qt.WindowNoState)
+
+            # 1. 恢复图标
+            self.btn_max.setIcon(qta.icon('msc.chrome-maximize', color='#666666'))
+            self.btn_max.setIconSize(QSize(16, 16))
+
+            # 2. 恢复圆角和边框
+            self.central_widget.setStyleSheet("""
+                #CentralWidget { 
+                    background-color: #F8F9FA; 
+                    border-radius: 12px; 
+                    border: 1px solid #E0E0E0; 
+                }
+            """)
+
+            # 3. 恢复关闭按钮悬停圆角
+            curr_style = self.btn_close.styleSheet()
+            self.btn_close.setStyleSheet(
+                curr_style.replace("border-top-right-radius: 0px;", "border-top-right-radius: 12px;"))
+
+        else:
+            # 关键：显式设置为 WindowMaximized
+            self.setWindowState(Qt.WindowMaximized)
+
+            # 1. 切换为还原图标
+            self.btn_max.setIcon(qta.icon('msc.chrome-restore', color='#666666'))
+            self.btn_max.setIconSize(QSize(16, 16))
+
+            # 2. 全屏时去掉圆角
+            self.central_widget.setStyleSheet("""
+                #CentralWidget { 
+                    background-color: #F8F9FA; 
+                    border-radius: 0px; 
+                    border: none; 
+                }
+            """)
+
+            # 3. 强制关闭按钮为直角
+            curr_style = self.btn_close.styleSheet()
+            self.btn_close.setStyleSheet(
+                curr_style.replace("border-top-right-radius: 12px;", "border-top-right-radius: 0px;"))
+
+        # 暴力提升层级并强制刷新
+        self.btn_min.raise_()
+        self.btn_max.raise_()
+        self.btn_close.raise_()
+        self.central_widget.update()
 
     def _setup_breathing_light(self):
         """初始化呼吸灯，确保圆形不走样且水平对齐菜单"""
@@ -1151,6 +1293,19 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=run_check, daemon=True).start()
 
+    # 优化后的拖动：只允许点击顶部区域或侧边栏进行拖动
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # 限制点击位置：侧边栏(210px) 或者 顶部控制栏高度(40px) 范围内才允许拖拽
+            if event.position().x() < 210 or event.position().y() < 40:
+                self.m_dragPosition = event.globalPos() - self.frameGeometry().topLeft()
+                event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and hasattr(self, 'm_dragPosition'):
+            self.move(event.globalPos() - self.m_dragPosition)
+            event.accept()
+
     @Slot(int)
     def switch_page(self, index):
         self.stacked_widget.setCurrentIndex(index)
@@ -1176,8 +1331,8 @@ class MainWindow(QMainWindow):
 # --- 应用程序启动 ---
 if __name__ == "__main__":
     # 确保 QApplication 组织名和应用名设置在 QSettings 之前
-    QApplication.setOrganizationName("YourCompanyName")
-    QApplication.setApplicationName("AutomationToolbox")
+    # QApplication.setOrganizationName("YourCompanyName")
+    # # QApplication.setApplicationName("AutomationToolbox")
 
     # 1. 创建 QApplication 实例 (只创建一次)
     app = QApplication(sys.argv)

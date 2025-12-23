@@ -1,14 +1,12 @@
 import sys
 from typing import Dict, List, Optional
 from PySide6.QtWidgets import (
-    QFrame,QGraphicsDropShadowEffect, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QGridLayout,QPushButton, QMessageBox,QSizePolicy,QDateEdit,
-    QProgressBar,QAbstractSpinBox
+    QFrame,QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit,QPushButton, QMessageBox,QDateEdit,
+    QProgressBar
 )
 from PySide6.QtCore import QDate,QThread
-from PySide6.QtWidgets import QScrollArea # 确保在您的导入列表中
 from PySide6.QtCore import Qt, Signal, QObject, Slot
-from PySide6.QtGui import QColor
 import os
 from PySide6.QtWidgets import QMenu, QWidgetAction, QCalendarWidget, QGridLayout
 
