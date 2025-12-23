@@ -355,8 +355,25 @@ class ExportWorkspacePage(QWidget):
         title_sub.setStyleSheet("font-size: 9px; color: #AAA; font-weight: bold; letter-spacing: 2px;")
         self.btn_add = QPushButton("+ 新增任务")
         self.btn_add.clicked.connect(self.show_add_dialog)
-        self.btn_add.setStyleSheet(
-            "background: #6366F1; color: white; padding: 8px 18px; border-radius: 6px; font-weight: bold;")
+        self.btn_add.setStyleSheet("""
+            QPushButton {
+                background: #6366F1;   /* 初始紫色 */
+                color: white; 
+                padding: 8px 18px; 
+                border-radius: 6px; 
+                font-weight: bold;
+                border: none;
+            }
+            /* 悬停时：颜色稍微加深（更有确定感） */
+            QPushButton:hover {
+                background: #4F46E5; 
+            }
+            /* 按下时：颜色最深，并加入一个深色边框模拟凹陷 */
+            QPushButton:pressed {
+                background: #3730A3;
+                border: 2px solid #312E81;
+            }
+        """)
         top_bar.addWidget(title_main)
         top_bar.addStretch()
         top_bar.addWidget(title_sub)

@@ -5,68 +5,214 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit,QPushButton, QMessageBox,QDateEdit,
     QProgressBar
 )
-from PySide6.QtCore import QDate,QThread
+from PySide6.QtCore import QDate,QThread,QPoint
 from PySide6.QtCore import Qt, Signal, QObject, Slot
 import os
 from PySide6.QtWidgets import QMenu, QWidgetAction, QCalendarWidget, QGridLayout
 
 
 class CustomDateRangePicker(QPushButton):
-    """自定义双月日期范围选择按钮"""
+    """现代化双月日期范围选择按钮"""
 
     def __init__(self, start_date, end_date, parent=None):
         super().__init__(parent)
         self.start_date = start_date
         self.end_date = end_date
         self.setObjectName("DateRangePickerTrigger")
-        self.update_text()
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_text()
         self.clicked.connect(self.show_double_calendar)
 
     def update_text(self):
-        # 将中间的箭头改为减号/分隔符，并调整为空格分隔
-        # 格式：2025-12-19 - 2025-12-19
+        # 格式化按钮显示的文字
         self.setText(f"{self.start_date.toString('yyyy-MM-dd')}  -  {self.end_date.toString('yyyy-MM-dd')}")
 
     def show_double_calendar(self):
+        from PySide6.QtWidgets import QMenu, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QCalendarWidget, \
+            QWidgetAction, QFrame, QGridLayout
+        from PySide6.QtCore import Qt, QPoint, QDate
+
+        # 1. 基础菜单配置
         menu = QMenu(self)
-        menu.setObjectName("CalendarMenu")
+        menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        menu.setWindowFlags(
+            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        menu.setStyleSheet("QMenu { background: transparent; border: none; padding: 0px; }")
+
+        # 2. 总容器
         container = QWidget()
-        container.setStyleSheet("background: white; border-radius: 8px;")
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(20)
+        container.setObjectName("CalendarContainer")
+        container.setStyleSheet(
+            "QWidget#CalendarContainer { background-color: white; border: 1px solid #E4E7ED; border-radius: 8px; }")
+        main_layout = QHBoxLayout(container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        cal_left = QCalendarWidget()
-        cal_right = QCalendarWidget()
+        # 3. 左侧快捷栏
+        sidebar = QWidget();
+        sidebar.setStyleSheet(
+            "QWidget { border-right: 1px solid #F2F6FC; } QPushButton { border: none; text-align: left; padding: 10px 20px; font-size: 13px; color: #606266; border-radius: 4px; margin: 2px 5px; } QPushButton:hover { background: #F5F7FA; color: #409EFF; }")
+        side_layout = QVBoxLayout(sidebar)
+        today = QDate.currentDate()
+        presets = {"今日": (today, today), "昨日": (today.addDays(-1), today.addDays(-1)),
+                   "过去7天": (today.addDays(-7), today), "过去30天": (today.addDays(-30), today)}
 
-        # 配置日历样式：隐藏周数，保持整洁
-        for cal in [cal_left, cal_right]:
-            cal.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
-            cal.setGridVisible(False)
-            layout.addWidget(cal)
+        # 4. 右侧内容区
+        right_content = QFrame()
+        right_layout = QVBoxLayout(right_content)
+        right_layout.setContentsMargins(15, 10, 15, 15)
 
-        # 初始日期
-        cal_left.setSelectedDate(self.start_date)
-        cal_right.setSelectedDate(self.end_date)
+        # --- 自定义头部 ---
+        header_layout = QHBoxLayout()
+        btn_style = "QPushButton { border: none; color: #303133; font-size: 14px; font-weight: bold; padding: 5px 8px; border-radius: 4px; } QPushButton:hover { background: #F5F7FA; color: #409EFF; }"
 
-        # 选中逻辑
-        cal_left.clicked.connect(lambda d: self._on_start_selected(d))
-        cal_right.clicked.connect(lambda d: self._on_end_selected(d, menu))
+        # 定义四个核心按钮：左年、左月、右年、右月
+        btn_l_y = QPushButton();
+        btn_l_m = QPushButton()
+        btn_r_y = QPushButton();
+        btn_r_m = QPushButton()
+        btn_prev = QPushButton("‹");
+        btn_next = QPushButton("›")
 
-        action = QWidgetAction(menu)
-        action.setDefaultWidget(container)
+        for b in [btn_l_y, btn_l_m, btn_r_y, btn_r_m, btn_prev, btn_next]:
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(btn_style if b not in [btn_prev,
+                                                   btn_next] else "QPushButton { border: none; color: #C0C4CC; font-size: 20px; } QPushButton:hover { color: #409EFF; }")
+
+        header_layout.addWidget(btn_prev);
+        header_layout.addStretch()
+        header_layout.addWidget(btn_l_y);
+        header_layout.addWidget(btn_l_m)
+        header_layout.addSpacing(40)
+        header_layout.addWidget(btn_r_y);
+        header_layout.addWidget(btn_r_m)
+        header_layout.addStretch();
+        header_layout.addWidget(btn_next)
+        right_layout.addLayout(header_layout)
+
+        # 5. 日历主体
+        cal_body = QWidget()
+        cal_body_layout = QHBoxLayout(cal_body);
+        cal_body_layout.setContentsMargins(0, 0, 0, 0)
+        cal_l = QCalendarWidget();
+        cal_r = QCalendarWidget()
+        for c in [cal_l, cal_r]:
+            c.setNavigationBarVisible(False)
+            c.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+            c.setStyleSheet(
+                "QCalendarWidget QAbstractItemView { selection-background-color: #409EFF; selection-color: white; border: none; outline: none; }")
+        cal_body_layout.addWidget(cal_l);
+        cal_body_layout.addWidget(cal_r)
+        right_layout.addWidget(cal_body)
+
+        # --- 6. 核心：通用网格选择器 (支持年/月切换) ---
+        class GridPicker(QFrame):
+            def __init__(self, parent_container, cal_widget, on_done):
+                super().__init__(parent_container)
+                self.cal = cal_widget
+                self.on_done = on_done
+                self.mode = "month"  # "month" or "year"
+                self.setStyleSheet("background: white; border: 1px solid #EBEEF5; border-radius: 4px;")
+                self.hide()
+                self.grid = QGridLayout(self)
+                self.grid.setContentsMargins(5, 5, 5, 5)
+
+            def show_months(self, rect):
+                self.mode = "month"
+                self._clear_grid()
+                months = [f"{i}月" for i in range(1, 13)]
+                for i, name in enumerate(months):
+                    btn = self._create_btn(name, lambda chk=False, m=i + 1: self._select_month(m))
+                    self.grid.addWidget(btn, i // 3, i % 3)
+                self.setGeometry(rect);
+                self.raise_();
+                self.show()
+
+            def show_years(self, rect):
+                self.mode = "year"
+                self._clear_grid()
+                curr_year = self.cal.yearShown()
+                # 显示当前年份前后的 12 年
+                for i in range(12):
+                    year = curr_year - 5 + i
+                    btn = self._create_btn(str(year), lambda chk=False, y=year: self._select_year(y))
+                    self.grid.addWidget(btn, i // 3, i % 3)
+                self.setGeometry(rect);
+                self.raise_();
+                self.show()
+
+            def _create_btn(self, text, slot):
+                btn = QPushButton(text);
+                btn.setFixedSize(65, 45)
+                btn.setStyleSheet(
+                    "QPushButton { border: none; border-radius: 4px; color: #606266; } QPushButton:hover { background: #F5F7FA; color: #409EFF; }")
+                btn.clicked.connect(slot);
+                return btn
+
+            def _clear_grid(self):
+                while self.grid.count():
+                    child = self.grid.takeAt(0);
+                    child.widget().deleteLater()
+
+            def _select_month(self, m):
+                self.cal.setCurrentPage(self.cal.yearShown(), m);
+                self.hide();
+                self.on_done()
+
+            def _select_year(self, y):
+                self.cal.setCurrentPage(y, self.cal.monthShown());
+                self.hide();
+                self.on_done()
+
+        # 实例化选择器
+        picker_l = GridPicker(container, cal_l, lambda: update_ui())
+        picker_r = GridPicker(container, cal_r, lambda: update_ui())
+
+        def update_ui():
+            btn_l_y.setText(f"{cal_l.yearShown()}年");
+            btn_l_m.setText(f"{cal_l.monthShown()}月")
+            btn_r_y.setText(f"{cal_r.yearShown()}年");
+            btn_r_m.setText(f"{cal_r.monthShown()}月")
+
+        # 绑定翻页与标题点击
+        btn_prev.clicked.connect(lambda: [cal_l.showPreviousMonth(), cal_r.showPreviousMonth(), update_ui()])
+        btn_next.clicked.connect(lambda: [cal_l.showNextMonth(), cal_r.showNextMonth(), update_ui()])
+
+        # 点击年份显示年份网格，点击月份显示月份网格
+        # 这里使用 cal_body 的几何尺寸，确保覆盖整个日历区域
+        btn_l_y.clicked.connect(lambda: picker_l.show_years(cal_body.geometry()))
+        btn_l_m.clicked.connect(lambda: picker_l.show_months(cal_body.geometry()))
+        btn_r_y.clicked.connect(lambda: picker_r.show_years(cal_body.geometry()))
+        btn_r_m.clicked.connect(lambda: picker_r.show_months(cal_body.geometry()))
+
+        # 初始日期状态逻辑
+        def apply_range(s, e):
+            self.start_date, self.end_date = s, e;
+            self.update_text();
+            menu.close()
+
+        for text, (s, e) in presets.items():
+            p_btn = QPushButton(text);
+            p_btn.clicked.connect(lambda chk=False, s=s, e=e: apply_range(s, e))
+            side_layout.addWidget(p_btn)
+
+        cal_l.clicked.connect(lambda d: [setattr(self, 'start_date', d), self.update_text()])
+        cal_r.clicked.connect(lambda d: apply_range(self.start_date, d))
+
+        cal_l.setSelectedDate(self.start_date)
+        next_m = self.start_date.addMonths(1)
+        cal_r.setCurrentPage(next_m.year(), next_m.month())
+        cal_r.setSelectedDate(self.end_date)
+
+        main_layout.addWidget(sidebar);
+        main_layout.addWidget(right_content)
+        update_ui()
+
+        action = QWidgetAction(menu);
+        action.setDefaultWidget(container);
         menu.addAction(action)
-        menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
+        menu.exec(self.mapToGlobal(self.rect().bottomLeft()) + QPoint(0, 5))
 
-    def _on_start_selected(self, date):
-        self.start_date = date
-        self.update_text()
-
-    def _on_end_selected(self, date, menu):
-        self.end_date = date
-        self.update_text()
-        menu.close()  # 选完结束日期自动关闭
 
 # --- 预设默认 Team IDs ---
 DEFAULT_TEAM_IDS: List[int] = [17440957, 17440962, 17440963, 17440964, 17440965, 17440967, 917535482]
