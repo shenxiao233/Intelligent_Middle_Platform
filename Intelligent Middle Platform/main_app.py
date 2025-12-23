@@ -20,6 +20,8 @@ from xlsx_to_csv_page import XlsxToCsvPage
 from Export_data_page import BatchExportPage
 from xuanyuna_page import ExportWorkspacePage
 import qtawesome as qta
+import ctypes
+from ctypes import wintypes
 
 
 # --- 1. 继承之前的拖拽输入框类 ---
@@ -952,8 +954,13 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        # 核心 1：无边框
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        # 必须包含 WindowMinMaxButtonsHint 或 WindowSystemMenuHint
+        # 这样 Windows 才会把该窗口列入 DWM 动画的管理名单
+        self.setWindowFlags(
+            Qt.FramelessWindowHint |
+            Qt.Window |
+            Qt.WindowMinimizeButtonHint  # 关键：允许任务栏交互
+        )
         # 核心 2：允许透明，这是去掉最外层“方壳子”的关键
         self.setAttribute(Qt.WA_TranslucentBackground)
 
@@ -1293,18 +1300,38 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=run_check, daemon=True).start()
 
-    # 优化后的拖动：只允许点击顶部区域或侧边栏进行拖动
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # 限制点击位置：侧边栏(210px) 或者 顶部控制栏高度(40px) 范围内才允许拖拽
-            if event.position().x() < 210 or event.position().y() < 40:
+            pos = event.position()
+            # 1. 判定是否点击在标题栏按钮上
+            child = self.childAt(pos.toPoint())
+            if child in [self.btn_min, self.btn_max, self.btn_close]:
+                # 如果点到按钮，确保清除拖拽状态并退出
+                if hasattr(self, 'm_dragPosition'): del self.m_dragPosition
+                return
+
+            # 2. 严格判定区域：仅限顶部 40px
+            # 删除了 x < 210，确保点击侧边栏不会导致位移
+            if pos.y() < 40:
                 self.m_dragPosition = event.globalPos() - self.frameGeometry().topLeft()
                 event.accept()
+            else:
+                # 3. 关键：点击其他区域时，必须删除该属性，否则 move 事件会误触发
+                if hasattr(self, 'm_dragPosition'):
+                    del self.m_dragPosition
 
     def mouseMoveEvent(self, event):
+        # 只有存在 m_dragPosition 且当前不是最大化状态时才允许移动
         if event.buttons() == Qt.LeftButton and hasattr(self, 'm_dragPosition'):
+            if self.isMaximized():
+                return
             self.move(event.globalPos() - self.m_dragPosition)
             event.accept()
+
+    def mouseReleaseEvent(self, event):
+        # 4. 松开鼠标时彻底释放资源
+        if hasattr(self, 'm_dragPosition'):
+            del self.m_dragPosition
 
     @Slot(int)
     def switch_page(self, index):
