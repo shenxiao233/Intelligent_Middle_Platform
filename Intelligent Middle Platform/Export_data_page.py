@@ -254,7 +254,7 @@ class BatchExportPage(QWidget):
         title_text = QLabel("风神批量数据工作台")
         title_text.setObjectName("SettingsTitle")  # 对应 QSS 中的紫色大标题
 
-        lbl_team_tip = QLabel("🛵 团队 ID 配置 (已自动加载预设)")
+        lbl_team_tip = QLabel("团队 ID 配置 (已自动加载预设)")
         lbl_team_tip.setObjectName("StepLabel")  # 对应 QSS 中的步骤标签
 
         self.entry_team_ids = QLineEdit()
@@ -314,7 +314,7 @@ class BatchExportPage(QWidget):
         bottom_layout.addWidget(self.progress_bar)
 
         # 核心启动按钮
-        self.btn_start_batch = QPushButton("🚀 开始全量批量导出")
+        self.btn_start_batch = QPushButton("开始全量批量导出")
         self.btn_start_batch.setObjectName("ActionButton")  # 标志性的紫色按钮
         self.btn_start_batch.setFixedHeight(50)
         self.btn_start_batch.setCursor(Qt.PointingHandCursor)

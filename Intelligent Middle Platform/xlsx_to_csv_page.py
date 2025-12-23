@@ -254,7 +254,7 @@ class XlsxToCsvPage(QWidget):
         # 底部动作
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.convert_btn = QPushButton("🚀 开启并发转换")
+        self.convert_btn = QPushButton("开启并发转换")
         self.convert_btn.setObjectName("PrimaryBtn")
         self.convert_btn.setFixedHeight(50)
 

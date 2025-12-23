@@ -115,7 +115,7 @@ class WideTablePage(QWidget):
 
         # 底部操作区
         action_layout = QVBoxLayout()
-        self.start_btn = QPushButton("🚀 启动数据处理与计算")
+        self.start_btn = QPushButton("启动数据处理与计算")
         self.start_btn.setObjectName("PrimaryBtn")
         self.start_btn.setFixedHeight(50)
         self.start_btn.clicked.connect(self.start_data_task)
@@ -305,14 +305,11 @@ class CrawlerPage(QWidget):
 
         # 3. 标题区域 (居中显示)
         title_box = QHBoxLayout()
-        title_icon = QLabel("🍃")
-        title_icon.setStyleSheet("font-size: 26pt; background: transparent; margin-right: 10px;")
 
         title_text = QLabel("离职数据导出")
         title_text.setObjectName("SettingsTitle")  # 复用设置页大标题样式（深灰色）
 
         title_box.addStretch()
-        title_box.addWidget(title_icon)
         title_box.addWidget(title_text)
         title_box.addStretch()
         container_layout.addLayout(title_box)
@@ -343,7 +340,7 @@ class CrawlerPage(QWidget):
         btn_layout.setSpacing(15)
 
         # 开始按钮：复用紫色 ActionButton 样式
-        self.btn_start = QPushButton("🚀 启动数据获取")
+        self.btn_start = QPushButton("启动数据获取")
         self.btn_start.setObjectName("ActionButton")
         self.btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_start.setFixedHeight(48)
