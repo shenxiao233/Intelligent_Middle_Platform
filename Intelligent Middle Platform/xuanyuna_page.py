@@ -87,7 +87,18 @@ class TaskInputCard(QFrame):
 
         self.btn_del = QPushButton("✕")
         self.btn_del.setFixedSize(24, 24)
-        self.btn_del.setStyleSheet("border:none; color: #9CA3AF; font-size: 14px; font-weight: bold;")
+        self.btn_del.setStyleSheet("""
+            QPushButton {
+                border: none; color: #9CA3AF; font-size: 14px; font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #EF4444; 
+            }
+            QPushButton:pressed {
+                padding-left: 2px;  /* 向右下角微移，产生点击感 */
+                padding-top: 2px;
+            }
+        """)
         self.btn_del.clicked.connect(lambda: self.delete_requested.emit(self.task_key))
 
         header.addWidget(self.lbl_name)
@@ -321,14 +332,42 @@ class ModernConfirmDialog(QDialog):
         btn_layout = QHBoxLayout()
         self.btn_cancel = QPushButton("取消")
         self.btn_cancel.setFixedHeight(38)
-        self.btn_cancel.setStyleSheet(
-            "background-color: #F3F4F6; color: #374151; border-radius: 8px; font-weight: bold; border: none;")
+        # --- 取消按钮样式 ---
+        self.btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #F3F4F6; 
+                color: #374151; 
+                border-radius: 8px; 
+                font-weight: bold; 
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #E5E7EB; /* 悬停时稍微变深 */
+            }
+            QPushButton:pressed {
+                background-color: #D1D5DB; /* 点击时明显变深 */
+            }
+        """)
         self.btn_cancel.clicked.connect(self.reject)
 
         self.btn_confirm = QPushButton("确认删除")
         self.btn_confirm.setFixedHeight(38)
-        self.btn_confirm.setStyleSheet(
-            "background-color: #EF4444; color: white; border-radius: 8px; font-weight: bold; border: none;")
+        # --- 确认删除按钮样式 ---
+        self.btn_confirm.setStyleSheet("""
+            QPushButton {
+                background-color: #EF4444; 
+                color: white; 
+                border-radius: 8px; 
+                font-weight: bold; 
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #DC2626; /* 悬停时红色加深 */
+            }
+            QPushButton:pressed {
+                background-color: #B91C1C; /* 点击时深红色 */
+            }
+        """)
         self.btn_confirm.clicked.connect(self.accept)
 
         btn_layout.addWidget(self.btn_cancel)
@@ -348,6 +387,7 @@ class ModernConfirmDialog(QDialog):
 
 # --- 4. 轩辕数据主工作台 ---
 class ExportWorkspacePage(QWidget):
+    navigate_to_page = Signal(str)
     PAGE_NAME = "轩辕数据"
 
     def __init__(self, parent=None):
@@ -378,6 +418,8 @@ class ExportWorkspacePage(QWidget):
         # 1. 新增：下载队列按钮 (采用描边风格)
         self.btn_queue = QPushButton("下载队列")
         self.btn_queue.setFixedSize(90, 32)  # 比新增按钮稍窄一点，保持错落感
+        # 2. 绑定点击事件：发送信号并带上目标页面的名称 "下载中心"
+        self.btn_queue.clicked.connect(lambda: self.navigate_to_page.emit("下载中心"))
         self.btn_queue.setStyleSheet("""
                 QPushButton {
                     background: transparent;
@@ -399,6 +441,7 @@ class ExportWorkspacePage(QWidget):
         # 2. 原有的：新增任务按钮 (稍微统一一下尺寸)
         self.btn_add = QPushButton("+ 新增任务")
         self.btn_add.setFixedSize(100, 32)
+        self.btn_add.clicked.connect(self.show_add_dialog)
         self.btn_add.setStyleSheet("""
                 QPushButton {
                     background: #6366F1;
