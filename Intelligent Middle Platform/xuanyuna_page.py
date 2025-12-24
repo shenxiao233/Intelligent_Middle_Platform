@@ -9,6 +9,39 @@ from PySide6.QtWidgets import (
     QGridLayout, QFrame, QTextEdit, QScrollArea, QDialog, QFormLayout, QDialogButtonBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QDate, QTimer
+from SettingsPage import  SettingsPage
+
+# 新增：自动化后台线程
+class AutomationThread(QThread):
+    finished_signal = Signal(str, bool, str)  # 参数：任务Key, 是否成功, 提示消息
+
+    def __init__(self, task_key, url, start_date, end_date, cookie_json):
+        super().__init__()
+        self.task_key = task_key
+        self.url = url
+        self.start_date = start_date
+        self.end_date = end_date
+        self.cookie_json = cookie_json
+
+    def run(self):
+        try:
+            # 这里调用我们之前写的 Worker 类
+            from xuanyuan_worker import ElemeDataWorker  # 确保你能引用到之前的类
+
+            worker = ElemeDataWorker()
+            worker.inject_cookies(self.cookie_json)
+
+            # 执行任务
+            result_path = worker.run_task(self.url, self.start_date, self.end_date)
+
+            worker.quit()
+
+            if result_path:
+                self.finished_signal.emit(self.task_key, True, "同步完成")
+            else:
+                self.finished_signal.emit(self.task_key, False, "同步失败：未找到文件")
+        except Exception as e:
+            self.finished_signal.emit(self.task_key, False, f"异常: {str(e)}")
 
 
 # --- 1. 任务配置弹窗 (支持新增和修改) ---
@@ -39,9 +72,9 @@ class TaskConfigDialog(QDialog):
     def get_data(self):
         return self.name_input.text().strip(), self.url_input.toPlainText().strip()
 
-
 # --- 2. 任务卡片容器 ---
 class TaskInputCard(QFrame):
+    start_sync_requested = Signal(str)
     delete_requested = Signal(str)
     edit_requested = Signal(str)
 
@@ -126,9 +159,25 @@ class TaskInputCard(QFrame):
         """)
         layout.addWidget(self.btn_export)
 
+        self.btn_export.clicked.connect(lambda: self.start_sync_requested.emit(self.task_key))
+
+
     def update_info(self, name, url):
         self.lbl_name.setText(name)
         self.task_url = url
+
+    def set_loading(self, is_loading):
+        """更新卡片状态 UI"""
+        if is_loading:
+            self.lbl_status.setText("● 正在同步中...")
+            self.lbl_status.setStyleSheet("color: #6366F1; font-size: 12px; font-weight: bold;")
+            self.btn_export.setEnabled(False)
+            self.btn_export.setText("处理中...")
+        else:
+            self.lbl_status.setText("● 就绪")
+            self.lbl_status.setStyleSheet("color: #10B981; font-size: 12px; font-weight: bold;")
+            self.btn_export.setEnabled(True)
+            self.btn_export.setText("开始同步数据")
 
 
 class TaskConfigDialog(QDialog):
@@ -531,6 +580,8 @@ class ExportWorkspacePage(QWidget):
     def add_card(self, name, key, url, auto_save=True):
         yesterday = QDate.currentDate().addDays(-1)
         card = TaskInputCard(name, key, url, yesterday, yesterday)
+        # 绑定同步信号
+        card.start_sync_requested.connect(self.handle_sync_start)
 
         card.delete_requested.connect(self.remove_card)
         card.edit_requested.connect(self.show_edit_dialog)
@@ -540,6 +591,64 @@ class ExportWorkspacePage(QWidget):
 
         if auto_save:
             self.save_config()  # 新增后保存
+
+    def handle_sync_start(self, key):
+        card = self.task_cards.get(key)
+        if not card: return
+
+        # 1. 获取日期属性（直接读取你的 CustomDateRangePicker 成员变量）
+        start_dt = card.date_picker.start_date.toString("yyyy-MM-dd")
+        end_dt = card.date_picker.end_date.toString("yyyy-MM-dd")
+
+        # 2. 获取轩辕站点的 Cookie 字典
+        # 返回类似: {"AEOLUS_MOZI_TOKEN": "...", "family": "...", "XY_TOKEN": "..."}
+        raw_cookies_dict = SettingsPage.get_all_cookies("轩辕")
+
+        # 3. 核心转换：构造 DrissionPage 需要的标准 Cookie 列表
+        cookie_list = []
+        for name, value in raw_cookies_dict.items():
+            if value:  # 只有值不为空时才注入
+                cookie_list.append({
+                    "domain": ".ele.me",  # 轩辕业务统一所在的根域名
+                    "name": name,
+                    "value": str(value)
+                })
+
+        # 4. 转换为 JSON 字符串传给线程
+        cookie_json_str = json.dumps(cookie_list)
+
+        # 5. UI 状态反馈
+        card.set_loading(True)
+
+        # 6. 启动后台线程
+        # 注意：这里的 self.worker 建议保存引用，防止线程被意外释放
+        self.worker = AutomationThread(
+            key,
+            card.task_url,
+            start_dt,
+            end_dt,
+            cookie_json_str
+        )
+        self.worker.finished_signal.connect(self.handle_sync_finished)
+        self.worker.start()
+
+        print(f"[{time.strftime('%H:%M:%S')}] 任务「{card.lbl_name.text()}」已进入后台同步流")
+
+    @Slot(str, bool, str)
+    def handle_sync_finished(self, key, success, message):
+        card = self.task_cards[key]
+        card.set_loading(False)
+
+        if success:
+            # 弹窗或修改状态
+            card.lbl_status.setText("● 同步成功")
+            card.lbl_status.setStyleSheet("color: #10B981; font-size: 12px; font-weight: bold;")
+            # 可以通过对话框提示用户
+            # QMessageBox.information(self, "完成", f"任务【{card.lbl_name.text()}】已下载完成")
+        else:
+            card.lbl_status.setText(f"● 失败: {message}")
+            card.lbl_status.setStyleSheet("color: #EF4444; font-size: 12px; font-weight: bold;")
+
 
     def remove_card(self, key):
         card = self.task_cards.get(key)

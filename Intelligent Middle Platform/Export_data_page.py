@@ -27,6 +27,14 @@ class CustomDateRangePicker(QPushButton):
         # 格式化按钮显示的文字
         self.setText(f"{self.start_date.toString('yyyy-MM-dd')}  -  {self.end_date.toString('yyyy-MM-dd')}")
 
+    def get_dates(self):
+        """返回格式为 (开始日期, 结束日期) 的字符串元组"""
+        # 假设你的内部日期组件叫 self.start_date_edit
+        # .toString("yyyy-MM-dd") 是 DrissionPage 脚本需要的格式
+        start = self.start_date_edit.date().toString("yyyy-MM-dd")
+        end = self.end_date_edit.date().toString("yyyy-MM-dd")
+        return start, end
+
     def show_double_calendar(self):
         from PySide6.QtWidgets import QMenu, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QCalendarWidget, \
             QWidgetAction, QFrame, QGridLayout
@@ -163,6 +171,7 @@ class CustomDateRangePicker(QPushButton):
                 self.cal.setCurrentPage(y, self.cal.monthShown());
                 self.hide();
                 self.on_done()
+
 
         # 实例化选择器
         picker_l = GridPicker(container, cal_l, lambda: update_ui())
