@@ -20,8 +20,7 @@ from xlsx_to_csv_page import XlsxToCsvPage
 from Export_data_page import BatchExportPage
 from xuanyuna_page import ExportWorkspacePage
 import qtawesome as qta
-import ctypes
-from ctypes import wintypes
+from download_page import DownloadCenterPage
 
 
 # --- 1. 继承之前的拖拽输入框类 ---
@@ -974,6 +973,7 @@ class MainWindow(QMainWindow):
             {"name": "风神离职数据", "icon": "fa5s.user-minus", "class": CrawlerPage},
             {"name": "批量数据导出", "icon": "fa5s.cloud-download-alt", "class": BatchExportPage},
             {"name": "轩辕数据", "icon": "fa5s.database", "class": ExportWorkspacePage},
+            {"name": "下载中心", "icon": "fa5s.download", "class": DownloadCenterPage},
             {"name": "B端数据处理", "icon": "fa5s.project-diagram", "class": MergePage},
             {"name": "宽表导出", "icon": "fa5s.th-list", "class": WideTablePage},
             {"name": "CSV极速导出", "icon": "fa5s.file-excel", "class": XlsxToCsvPage},

@@ -61,10 +61,28 @@ class TaskInputCard(QFrame):
         self.lbl_name = QLabel(name)
         self.lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #1F2937;")
 
-        btn_layout = QHBoxLayout()
         self.btn_edit = QPushButton("编辑")
         self.btn_edit.setFixedSize(45, 24)
-        self.btn_edit.setStyleSheet("font-size: 11px; color: #6366F1; border: 1px solid #6366F1; border-radius: 4px;")
+
+        # 使用伪状态添加动态效果
+        self.btn_edit.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                color: #6366F1;
+                border: 1px solid #6366F1;
+                border-radius: 4px;
+                background-color: transparent;
+            }
+            QPushButton:hover {
+                background-color: #EEF2FF; /* 悬停时浅蓝色背景 */
+                border-color: #4F46E5;
+                color: #4F46E5;
+            }
+            QPushButton:pressed {
+                background-color: #E0E7FF; /* 点击时加深背景 */
+            }
+        """)
+
         self.btn_edit.clicked.connect(lambda: self.edit_requested.emit(self.task_key))
 
         self.btn_del = QPushButton("✕")
@@ -347,38 +365,68 @@ class ExportWorkspacePage(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(30, 30, 30, 30)
 
+        # --- 修改 top_bar 部分 ---
         top_bar = QHBoxLayout()
-        # 推荐的标题样式
+
+        # 标题部分保持不变
         title_main = QLabel("雷达 4.0")
         title_main.setStyleSheet("font-size: 26px; font-weight: 900; color: #1A1A1A; font-family: 'Impact';")
+
         title_sub = QLabel("ARK INFORMATION PROCESSING CENTRAL & DATA TERMINAL")
         title_sub.setStyleSheet("font-size: 9px; color: #AAA; font-weight: bold; letter-spacing: 2px;")
+
+        # 1. 新增：下载队列按钮 (采用描边风格)
+        self.btn_queue = QPushButton("下载队列")
+        self.btn_queue.setFixedSize(90, 32)  # 比新增按钮稍窄一点，保持错落感
+        self.btn_queue.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    color: #6366F1;
+                    border: 1px solid #6366F1;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #F5F7FF;
+                    border: 1px solid #4F46E5;
+                }
+                QPushButton:pressed {
+                    background: #EEF2FF;
+                }
+            """)
+
+        # 2. 原有的：新增任务按钮 (稍微统一一下尺寸)
         self.btn_add = QPushButton("+ 新增任务")
-        self.btn_add.clicked.connect(self.show_add_dialog)
+        self.btn_add.setFixedSize(100, 32)
         self.btn_add.setStyleSheet("""
-            QPushButton {
-                background: #6366F1;   /* 初始紫色 */
-                color: white; 
-                padding: 8px 18px; 
-                border-radius: 6px; 
-                font-weight: bold;
-                border: none;
-            }
-            /* 悬停时：颜色稍微加深（更有确定感） */
-            QPushButton:hover {
-                background: #4F46E5; 
-            }
-            /* 按下时：颜色最深，并加入一个深色边框模拟凹陷 */
-            QPushButton:pressed {
-                background: #3730A3;
-                border: 2px solid #312E81;
-            }
-        """)
+                QPushButton {
+                    background: #6366F1;
+                    color: white; 
+                    border-radius: 6px; 
+                    font-weight: bold;
+                    font-size: 12px;
+                    border: none;
+                }
+                QPushButton:hover {
+                    background: #4F46E5; 
+                }
+                QPushButton:pressed {
+                    background: #3730A3;
+                }
+            """)
+
+        # 3. 按照顺序添加到布局
         top_bar.addWidget(title_main)
         top_bar.addStretch()
         top_bar.addWidget(title_sub)
         top_bar.addStretch()
+
+        # 将两个按钮并排添加
+        top_bar.addWidget(self.btn_queue)
+        top_bar.addSpacing(10)  # 两个按钮之间的间距
         top_bar.addWidget(self.btn_add)
+
         main_layout.addLayout(top_bar)
 
         scroll = QScrollArea()
