@@ -36,6 +36,7 @@ class ElemeDataWorker:
         """执行主任务"""
         print(f"[{self._get_now()}] 启动任务: {target_url}")
         self.page.get(target_url)
+        time.sleep(1)
 
         # 1. 切入 Iframe
         iframe = self.page.get_frame('.ark-lowcode-frame')
@@ -44,23 +45,45 @@ class ElemeDataWorker:
             return False
 
         # 2. 设置日期
-        try:
-            start_input = iframe.ele('@placeholder=开始日期', timeout=10)
-            if start_input:
-                start_input.click()
-                iframe.run_js('arguments[0].removeAttribute("readonly");', start_input)
-                start_input.clear()
-                start_input.input(start_date)
-
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                start_input = iframe.ele('@placeholder=开始日期', timeout=10)
                 end_input = iframe.ele('@placeholder=结束日期')
-                end_input.clear()
-                end_input.input(end_date)
 
-                iframe.actions.key_down('ENTER').key_up('ENTER')
-                print(f"[{self._get_now()}] ✅ 日期已填入: {start_date} ~ {end_date}")
-        except Exception as e:
-            print(f"❌ 设置日期失败: {e}")
-            return False
+                if start_input and end_input:
+                    # 填写开始日期
+                    start_input.click()
+                    iframe.run_js('arguments[0].removeAttribute("readonly");', start_input)
+                    start_input.clear()
+                    start_input.input(start_date)
+
+                    # 填写结束日期
+                    end_input.clear()
+                    end_input.input(end_date)
+
+                    # 回车确认触发页面刷新/监听
+                    iframe.actions.key_down('ENTER').key_up('ENTER')
+
+                    # --- 核心校验部分 ---
+                    # 获取实际填入的值进行比对
+                    actual_start = start_input.attr('value')
+                    actual_end = end_input.attr('value')
+
+                    if actual_start == start_date and actual_end == end_date:
+                        print(f"[{self._get_now()}] ✅ 日期校验成功: {start_date} ~ {end_date}")
+                        break  # 校验成功，跳出循环
+                    else:
+                        print(
+                            f"[{self._get_now()}] ⚠️ 日期校验失败(实际为: {actual_start}), 正在进行第 {attempt + 1} 次重试...")
+
+            except Exception as e:
+                print(f"❌ 设置日期尝试中出错 (第{attempt + 1}次): {e}")
+
+            # 如果是最后一次尝试仍然失败
+            if attempt == max_retries - 1:
+                print(f"❌ 经过 {max_retries} 次尝试，无法正确设置日期。")
+                return False
 
         # 3. 点击查询并等待
         search_btn = (iframe.ele('text:查 询', timeout=2) or
