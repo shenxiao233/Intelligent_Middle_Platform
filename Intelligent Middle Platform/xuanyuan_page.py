@@ -4,7 +4,7 @@ import json  # 引入json模块
 from typing import Dict
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,QComboBox,
     QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar,
     QGridLayout, QFrame, QTextEdit, QScrollArea, QDialog, QFormLayout, QDialogButtonBox
 )
@@ -97,35 +97,274 @@ class DownloadDispatcher(QObject):
         self._check_next()
 
 
-
-
-# --- 1. 任务配置弹窗 (支持新增和修改) ---
+# --- 统一优化后的高级配置弹窗 ---
 class TaskConfigDialog(QDialog):
-    def __init__(self, parent=None, name="", url=""):
+    def __init__(self, parent=None, name="", url="", task_type="单页单表", tabs_info=None):
         super().__init__(parent)
-        self.setWindowTitle("任务配置")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(500)
-        self.setStyleSheet("background-color: white;")
 
-        layout = QFormLayout(self)
+        # 1. 创建外层容器
+        self.container = QFrame(self)
+        self.container.setStyleSheet("""
+            QFrame { background-color: white; border-radius: 20px; border: 1px solid #E5E7EB; }
+        """)
+
+        # 2. 设置最外层布局 (包裹 container)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.addWidget(self.container)
+
+        # 3. 创建内容布局 (核心改动：先创建，再设置对齐)
+        self.content_layout = QVBoxLayout(self.container)
+        self.content_layout.setContentsMargins(30, 30, 30, 30)
+        self.content_layout.setSpacing(15)
+        self.content_layout.setAlignment(Qt.AlignTop)  # ✅ 现在正确了，让控件从顶部开始排
+
+        # --- 标题栏 ---
+        header_layout = QHBoxLayout()
+        header_lbl = QLabel("高级同步任务配置")
+        header_lbl.setStyleSheet("font-size: 20px; font-weight: 800; color: #111827; border: none;")
+        header_layout.addWidget(header_lbl)
+        header_layout.addStretch()
+        self.content_layout.addLayout(header_layout)
+
+        # --- 统一输入控件样式函数 ---
+        input_style = """
+            QLineEdit, QTextEdit, QComboBox {
+                padding: 10px 15px;
+                border: 1.5px solid #E5E7EB;
+                border-radius: 10px;
+                background-color: #F9FAFB;
+                font-size: 13px;
+                color: #374151;
+            }
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+                border: 2px solid #6366F1;
+                background-color: white;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+            QComboBox::down-arrow {
+                image: none; /* 如果有图标可以替换 */
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #6B7280;
+                margin-right: 10px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #E5E7EB;
+                border-radius: 8px;
+                background-color: white;
+                selection-background-color: #EEF2FF;
+                selection-color: #6366F1;
+                outline: none;
+            }
+        """
+
+        # --- 表单输入区 ---
+        self.add_label("任务名称")
         self.name_input = QLineEdit(name)
-        self.name_input.setPlaceholderText("例如：业务宽表数据")
+        self.name_input.setStyleSheet(input_style)
+        self.content_layout.addWidget(self.name_input)
 
-        self.url_input = QTextEdit()
-        self.url_input.setPlainText(url)
-        self.url_input.setPlaceholderText("粘贴 direct_sub_url 地址...")
-        self.url_input.setFixedHeight(120)
+        self.add_label("页面 URL")
+        self.url_input = QTextEdit(url)
+        self.url_input.setFixedHeight(70)
+        self.url_input.setStyleSheet(input_style)
+        self.content_layout.addWidget(self.url_input)
 
-        layout.addRow("任务名称:", self.name_input)
-        layout.addRow("页面 URL:", self.url_input)
+        self.add_label("任务下载属性")
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["单页单表", "单页多表(无TAB)", "单页多表(有TAB)", "单页多表(有多级TAB)"])
+        self.type_combo.setCurrentText(task_type)
+        self.type_combo.setStyleSheet(input_style)
+        self.type_combo.currentTextChanged.connect(self._on_type_changed)
+        self.content_layout.addWidget(self.type_combo)
 
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
-        layout.addRow("", self.button_box)
+        # --- 动态 TAB 配置区域 ---
+        self.tabs_area = QWidget()
+        self.tabs_layout = QVBoxLayout(self.tabs_area)
+        self.tabs_layout.setContentsMargins(0, 5, 0, 5)
+        self.tabs_layout.setSpacing(10)
+        self.content_layout.addWidget(self.tabs_area)
+        self.tab_inputs = []
+
+        # 4. 底部按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+
+        self.btn_cancel = QPushButton("取消")
+        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.setStyleSheet("""
+                    QPushButton {
+                        background-color: #F3F4F6; color: #4B5563; border-radius: 10px;
+                        font-weight: bold; height: 42px; border: none; font-size: 14px;
+                    }
+                    QPushButton:hover { background-color: #E5E7EB; }
+                """)
+
+        self.btn_confirm = QPushButton("保存任务配置")
+        self.btn_confirm.clicked.connect(self.accept)
+        self.btn_confirm.setCursor(Qt.PointingHandCursor)
+        self.btn_confirm.setStyleSheet("""
+                    QPushButton {
+                        background-color: #6366F1; color: white; border-radius: 10px;
+                        font-weight: bold; height: 42px; border: none; font-size: 14px;
+                    }
+                    QPushButton:hover { background-color: #4F46E5; }
+                """)
+
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addWidget(self.btn_confirm)
+
+        # 将按钮布局放入主布局
+        self.content_layout.addLayout(btn_layout)
+
+        # --- 关键修改：在所有控件最后添加伸缩空间 ---
+        # 这一行必须在 addLayout(btn_layout) 之后，确保它在最底部
+        self.content_layout.addStretch()
+
+        # --- 初始化显示：只保留一次调用 ---
+        # 注意：此时 self.tab_inputs 应该已经初始化为 [] (在前面逻辑中)
+        self._on_type_changed(self.type_combo.currentText())
+
+    def add_label(self, text):
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: #6B7280; font-size: 12px; font-weight: 700; margin-top: 5px; border: none;")
+        self.content_layout.addWidget(lbl)
+
+
+    def _create_tab_input(self, label, placeholder):
+        lbl = QLabel(label)
+        # 修改标签颜色为正常的深灰色
+        lbl.setStyleSheet("font-size: 12px; color: #4B5563; font-weight: 700; margin-top: 5px; border: none;")
+
+        edit = QLineEdit()
+        edit.setPlaceholderText(placeholder)
+        # 修改为与主输入框一致的 input_style，去掉紫色和虚线
+        edit.setStyleSheet("""
+            QLineEdit {
+                padding: 10px 15px;
+                border: 1.5px solid #E5E7EB;
+                border-radius: 10px;
+                background-color: #F9FAFB;
+                font-size: 13px;
+                color: #374151;
+            }
+            QLineEdit:focus {
+                border: 2px solid #6366F1;
+                background-color: white;
+            }
+        """)
+        self.tabs_layout.addWidget(lbl)
+        self.tabs_layout.addWidget(edit)
+        self.tab_inputs.append(edit)
+
+
+    def accept(self):
+        """点击保存：先存数据，再清空 UI 展示动画"""
+
+        # 1. 基础校验
+        name_text = self.name_input.text().strip()
+        url_text = self.url_input.toPlainText().strip()
+
+        if not name_text or not url_text:
+            self.name_input.setStyleSheet(self.name_input.styleSheet() + "border: 1.5px solid #EF4444;")
+            return
+
+        # --- 核心修复：在销毁控件前，把数据提取出来存为类属性 ---
+        self.final_data = {
+            "name": name_text,
+            "url": url_text,
+            "type": self.type_combo.currentText(),
+            "tabs": [edit.text().strip() for edit in self.tab_inputs if edit.text().strip()]
+        }
+
+        # 2. 彻底清理布局展示动画
+        self._clear_layout(self.content_layout)
+
+        # 3. 动画界面美化
+        self.container.setStyleSheet("background-color: white; border-radius: 20px; border: none;")
+        self.content_layout.setAlignment(Qt.AlignCenter)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+
+        success_lbl = QLabel(
+            "<div style='text-align:center;'>"
+            "<span style='font-size:60px;'>🎉</span><br><br>"
+            "<b style='color:#10B981; font-size:22px;'>配置保存成功！</b><br><br>"
+            "<span style='color:#9CA3AF; font-size:14px;'>任务已同步至数据中心工作台</span>"
+            "</div>"
+        )
+        self.content_layout.addWidget(success_lbl)
+
+        # 4. 延迟关闭
+        QTimer.singleShot(1200, lambda: super(TaskConfigDialog, self).accept())
+
+    def _clear_layout(self, layout):
+        """递归清理布局辅助函数：这是防止元素堆叠的核心"""
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()  # 彻底销毁控件，释放空间
+                elif item.layout():
+                    self._clear_layout(item.layout())  # 递归清理子布局
 
     def get_data(self):
-        return self.name_input.text().strip(), self.url_input.toPlainText().strip()
+        """主界面调用此方法获取数据：改从存好的变量里拿，而不是从控件拿"""
+        # 返回我们在 accept 里存好的 final_data
+        return self.final_data
+
+    # --- 修复拖拽报错 ---
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # 初始化拖拽坐标
+            self.m_dragPosition = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        # 增加 hasattr 判断，防止属性未初始化时报错
+        if event.buttons() == Qt.LeftButton and hasattr(self, 'm_dragPosition'):
+            self.move(event.globalPos() - self.m_dragPosition)
+            event.accept()
+
+    def _on_type_changed(self, text):
+        """动态增减 TAB 输入框逻辑"""
+        # 1. 使用 setUpdatesEnabled(False) 减少清理过程中的界面闪烁
+        self.setUpdatesEnabled(False)
+
+        # 2. 清理旧的（建议使用 deleteLater 彻底释放内存）
+        for i in reversed(range(self.tabs_layout.count())):
+            widget = self.tabs_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+                widget.deleteLater()
+        self.tab_inputs = []
+
+        # 3. 根据选中的属性增加输入框
+        if "有TAB" in text:
+            self._create_tab_input("一级 TAB 名称列表", "多个名称请用英文逗号分隔，例如：自营,零售,加盟")
+
+        if "多级TAB" in text:
+            self._create_tab_input("二级 TAB 名称列表", "例如：日汇总,月汇总")
+
+        # 4. 重新启用界面更新
+        self.setUpdatesEnabled(True)
+
+        # 5. 【核心点】强制窗口自适应新内容的高度
+        # 使用 QTimer 是为了确保在控件渲染完成后再计算高度，防止计算偏差
+        QTimer.singleShot(10, self.adjustSize)
+
+    def adjust_window_size(self):
+        """手动触发窗口尺寸自适应"""
+        self.adjustSize()
+        # 如果你希望保持动画感，这里可以加入 QPropertyAnimation
 
 # --- 2. 任务卡片容器 ---
 class TaskInputCard(QFrame):
@@ -233,178 +472,6 @@ class TaskInputCard(QFrame):
             self.lbl_status.setStyleSheet("color: #10B981; font-size: 12px; font-weight: bold;")
             self.btn_export.setEnabled(True)
             self.btn_export.setText("开始同步数据")
-
-
-class TaskConfigDialog(QDialog):
-    def __init__(self, parent=None, name="", url=""):
-        super().__init__(parent)
-        # 隐藏原生边框，设置背景透明
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(450)
-
-        # 外层阴影容器
-        self.container = QFrame(self)
-        self.container.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 16px;
-                border: 1px solid #E5E7EB;
-            }
-        """)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(self.container)
-
-        # 内容布局
-        layout = QVBoxLayout(self.container)
-        layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(15)
-
-        # 1. 标题
-        header_lbl = QLabel("任务配置")
-        header_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #111827; border: none;")
-        layout.addWidget(header_lbl)
-
-        # 2. 任务名称输入
-        name_label = QLabel("任务名称")
-        name_label.setStyleSheet("color: #6B7280; font-size: 12px; font-weight: bold; border: none;")
-        layout.addWidget(name_label)
-
-        self.name_input = QLineEdit(name)
-        self.name_input.setPlaceholderText("请输入任务名称...")
-        self.name_input.setStyleSheet("""
-            QLineEdit {
-                padding: 10px;
-                border: 1px solid #D1D5DB;
-                border-radius: 8px;
-                background-color: #F9FAFB;
-                font-size: 14px;
-            }
-            QLineEdit:focus { border: 2px solid #6366F1; background-color: white; }
-        """)
-        layout.addWidget(self.name_input)
-
-        # 3. 页面 URL 输入
-        url_label = QLabel("页面 URL")
-        url_label.setStyleSheet("color: #6B7280; font-size: 12px; font-weight: bold; border: none;")
-        layout.addWidget(url_label)
-
-        self.url_input = QTextEdit()
-        self.url_input.setPlainText(url)
-        self.url_input.setPlaceholderText("粘贴 target_url 地址...")
-        self.url_input.setFixedHeight(120)
-        self.url_input.setStyleSheet("""
-            QTextEdit {
-                padding: 10px;
-                border: 1px solid #D1D5DB;
-                border-radius: 8px;
-                background-color: #F9FAFB;
-                font-size: 13px;
-            }
-            QTextEdit:focus { border: 2px solid #6366F1; background-color: white; }
-        """)
-        layout.addWidget(self.url_input)
-
-        layout.addSpacing(10)
-
-        # 4. 按钮区
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(12)
-
-        self.btn_cancel = QPushButton("取消")
-        self.btn_cancel.setCursor(Qt.PointingHandCursor)
-        self.btn_cancel.setFixedHeight(40)
-        self.btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: #F3F4F6;
-                color: #374151;
-                border-radius: 8px;
-                font-weight: bold;
-                border: none;
-            }
-            QPushButton:hover { background-color: #E5E7EB; }
-        """)
-        self.btn_cancel.clicked.connect(self.reject)
-
-        self.btn_confirm = QPushButton("保存配置")
-        self.btn_confirm.setCursor(Qt.PointingHandCursor)
-        self.btn_confirm.setFixedHeight(40)
-        self.btn_confirm.setStyleSheet("""
-            QPushButton {
-                background-color: #6366F1;
-                color: white;
-                border-radius: 8px;
-                font-weight: bold;
-                border: none;
-            }
-            QPushButton:hover { background-color: #4F46E5; }
-        """)
-        self.btn_confirm.clicked.connect(self.accept)
-
-        btn_layout.addWidget(self.btn_cancel)
-        btn_layout.addWidget(self.btn_confirm)
-        layout.addLayout(btn_layout)
-        # 记录一下布局对象，方便后面动态添加成功提示
-        self.content_layout = layout
-
-    # 支持鼠标拖动（因为去掉了标题栏）
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.m_dragPosition = event.globalPos() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
-            self.move(event.globalPos() - self.m_dragPosition)
-            event.accept()
-
-    # --- 核心修改：重写 accept 方法 ---
-    def accept(self):
-        """当用户点击‘保存配置’按钮时，不再直接关闭，而是展示成功动画"""
-
-        # 1. 检查数据是否完整（防止保存空配置）
-        name = self.name_input.text().strip()
-        url = self.url_input.toPlainText().strip()
-
-        if not name or not url:
-            # 如果没填，可以抖动一下或者变红，这里简单做个提示
-            self.name_input.setStyleSheet(self.name_input.styleSheet() + "border: 1px solid #EF4444;")
-            return
-
-        self.container.setStyleSheet("background-color: white; border-radius: 16px; border: none;")
-
-        # 2. 隐藏当前的输入控件和按钮，腾出空间
-        self.name_input.hide()
-        self.url_input.hide()
-        self.btn_cancel.hide()
-        self.btn_confirm.hide()
-
-        # 3. 清理掉 layout 中原本存在的所有控件（标签、输入框等）
-        # 这样可以防止残留的占位符导致布局错乱
-        for i in reversed(range(self.container.layout().count())):
-            item = self.container.layout().itemAt(i)
-            if item.widget():
-                item.widget().hide()
-
-        # 3. 插入你喜欢的 HTML 风格成功文案
-        success_lbl = QLabel(
-            "<div style='text-align:center;'>"
-            "<span style='font-size:60px;'>🎉</span><br><br>"
-            "<b style='color:#27AE60; font-size:20px;'>配置保存成功！</b><br><br>"
-            "<span style='color:#9CA3AF; font-size:14px;'>任务已同步至数据中心工作台</span>"
-            "</div>"
-        )
-        success_lbl.setTextFormat(Qt.RichText)
-        success_lbl.setAlignment(Qt.AlignCenter)
-        self.content_layout.addWidget(success_lbl)
-
-        # 4. 重点：使用 QTimer 延迟 1.2 秒后再真正执行父类的 accept()
-        # 这时对话框才会关闭，并返回结果给主界面
-        QTimer.singleShot(1200, lambda: super(TaskConfigDialog, self).accept())
-
-    def get_data(self):
-        return self.name_input.text().strip(), self.url_input.toPlainText().strip()
 
 
 # --- 3. 现代化删除确认弹窗 ---
@@ -604,13 +671,18 @@ class ExportWorkspacePage(QWidget):
         """将当前所有卡片保存到 JSON"""
         config_data = {}
         for key, card in self.task_cards.items():
+            # 从 card 对象中提取所有相关字段
+            # 使用 getattr 是为了防止某些旧卡片对象没有新属性而导致崩溃
             config_data[key] = {
                 "name": card.lbl_name.text(),
-                "url": card.task_url
+                "url": card.task_url,
+                "type": getattr(card, 'task_type', "单页单表"),
+                "tabs": getattr(card, 'tabs_info', [])
             }
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, ensure_ascii=False, indent=4)
+            print("配置已成功保存到本地")
         except Exception as e:
             print(f"保存配置失败: {e}")
 
@@ -625,12 +697,29 @@ class ExportWorkspacePage(QWidget):
 
     def show_edit_dialog(self, key):
         card = self.task_cards[key]
-        dialog = TaskConfigDialog(self, name=card.lbl_name.text(), url=card.task_url)
+
+        # 从 card 中获取存储的所有信息
+        # 这里的属性名（如 card.task_type）取决于你卡片类是如何定义的
+        dialog = TaskConfigDialog(
+            self,
+            name=card.lbl_name.text(),
+            url=card.task_url,
+            task_type=getattr(card, 'task_type', "单页单表"),  # 如果没有该属性则传默认值
+            tabs_info=getattr(card, 'tabs_info', None)  # 同上
+        )
+
         if dialog.exec():
-            name, url = dialog.get_data()
-            if name and url:
-                card.update_info(name, url)
-                self.save_config()  # 修改后保存
+            # 获取修改后的完整字典
+            result = dialog.get_data()
+
+            # 更新卡片显示的文字
+            card.update_info(result["name"], result["url"])
+
+            # 记得把新保存的类型和标签也存回卡片对象中，否则下次打开还是默认值
+            card.task_type = result["type"]
+            card.tabs_info = result["tabs"]
+
+            self.save_config()
 
     def add_card(self, name, key, url, auto_save=True):
         yesterday = QDate.currentDate().addDays(-1)
