@@ -666,8 +666,13 @@ class ExportWorkspacePage(QWidget):
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
                 for key, data in config_data.items():
-                    # 批量创建卡片
-                    self.add_card(data['name'], key, data['url'], auto_save=False)
+                    # 传入 JSON 中的 type 和 config
+                    self.add_card(
+                        data['name'], key, data['url'],
+                        task_type=data.get('type', "单页单表"),
+                        config_info=data.get('config', {}),
+                        auto_save=False
+                    )
         except Exception as e:
             print(f"读取配置失败: {e}")
 
@@ -691,10 +696,17 @@ class ExportWorkspacePage(QWidget):
     def show_add_dialog(self):
         dialog = TaskConfigDialog(self)
         if dialog.exec():
-            name, url = dialog.get_data()
+            # --- 核心修改：result 现在是一个字典 ---
+            result = dialog.get_data()
+            name = result.get("name")
+            url = result.get("url")
+
             if name and url:
                 key = f"T{int(time.time() * 1000)}"
-                self.add_card(name, key, url)
+                # 将整个 result 传给 add_card，或者分别传参
+                self.add_card(name, key, url,
+                              task_type=result.get("type"),
+                              config_info=result.get("config"))
 
     def show_edit_dialog(self, key):
         card = self.task_cards[key]
@@ -717,12 +729,16 @@ class ExportWorkspacePage(QWidget):
 
             self.save_config()  # 保存到本地 JSON
 
-    def add_card(self, name, key, url, auto_save=True):
+    def add_card(self, name, key, url, task_type="单页单表", config_info=None, auto_save=True):
         yesterday = QDate.currentDate().addDays(-1)
         card = TaskInputCard(name, key, url, yesterday, yesterday)
-        # 绑定同步信号
-        card.start_sync_requested.connect(self.handle_sync_start)
 
+        # --- 新增：将高级配置存入卡片对象中 ---
+        card.task_type = task_type
+        card.config_info = config_info if config_info else {}
+
+        # 绑定信号
+        card.start_sync_requested.connect(self.handle_sync_start)
         card.delete_requested.connect(self.remove_card)
         card.edit_requested.connect(self.show_edit_dialog)
 
@@ -730,7 +746,7 @@ class ExportWorkspacePage(QWidget):
         self._relayout_cards()
 
         if auto_save:
-            self.save_config()  # 新增后保存
+            self.save_config()
 
     def handle_sync_start(self, key):
         """
