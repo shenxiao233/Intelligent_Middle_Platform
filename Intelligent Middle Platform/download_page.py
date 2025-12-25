@@ -3,10 +3,9 @@ from PySide6.QtWidgets import (
     QApplication,QFrame, QScrollArea,
     QTabWidget
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QTextEdit
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF,Slot
 from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen
 
 
@@ -159,72 +158,129 @@ class DownloadCenterPage(QWidget):
         super().__init__(parent)
         self.setWindowTitle("下载中心")
         self.resize(1100, 850)
-        # 设置页面背景色为白色，确保与整体风格一致
         self.setStyleSheet("background-color: #FFFFFF;")
+
+        # 1. 核心存储：记录 key 对应的 TaskItem 引用，方便后续更新进度或移除
+        self.active_items = {}
+
         self._init_ui()
 
     def _init_ui(self):
-        # 1. 页面主布局
         layout = QVBoxLayout(self)
-        # 既然去掉了标题，顶部可以适当增加一点内边距 (例如 30px)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(0)
-
-        # --- 2. 移除标题逻辑 ---
-        # 如果你完全不需要顶部那一横栏，可以直接不创建 header。
-        # 这里保留一个较小的间隔，让 Tab 别顶死在最上面
         layout.addSpacing(10)
 
-        # 3. Tab Widget 保持不变，但统一底线长度
+        # 2. Tab Widget
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
-                    QTabWidget {
-                        border: none;
-                    }
-                    QTabWidget::pane { 
-                        border: none; 
-                        background: transparent; 
-                    }
-                    QTabBar::tab {
-                        background: transparent; 
-                        /* 核心修改：统一设置最小宽度，确保底线长度一致 */
-                        min-width: 120px; 
-                        padding: 10px 10px;
-                        margin-right: 20px; 
-                        font-weight: bold; 
-                        font-size: 14px; 
-                        color: #94A3B8;
-                        border-bottom: 2px solid transparent;
-                    }
-                    QTabBar::tab:selected { 
-                        color: #6366F1; 
-                        border-bottom: 3px solid #6366F1; 
-                    }
-                """)
+            QTabWidget { border: none; }
+            QTabWidget::pane { border: none; background: transparent; }
+            QTabBar::tab {
+                background: transparent; 
+                min-width: 120px; 
+                padding: 10px 10px;
+                margin-right: 20px; 
+                font-weight: bold; 
+                font-size: 14px; 
+                color: #94A3B8;
+                border-bottom: 2px solid transparent;
+            }
+            QTabBar::tab:selected { 
+                color: #6366F1; 
+                border-bottom: 3px solid #6366F1; 
+            }
+        """)
 
-        # 页签初始化逻辑不变
-        self.dl_list_layout = self._create_list_tab("下载中 (2)")
+        # 页签初始化
+        self.dl_list_layout = self._create_list_tab("下载中 (0)")
         self.fi_list_layout = self._create_finished_tab("已完成")
 
         layout.addWidget(self.tabs)
 
-        # 数据测试代码保持不变
-        log_sample = "[INFO] 建立连接...\n[INFO] 解析 Direct URL\n[SUCCESS] 握手成功\n[INFO] 正在接收数据流..."
-        self.dl_list_layout.addWidget(TaskItem("业务数据_2024_Q1.csv", "45.2 MB/s", 75, "00:12:45", log_sample))
-        self.dl_list_layout.addWidget(TaskItem("雷达原始轨迹数据.zip", "3.1 MB/s", 20, "00:05:12", "等待信号分发..."))
+        # --- 信号连接延迟处理 ---
+        # 确保 dispatcher 被 MainWindow 注入后再连接
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(50, self._connect_signals)
+
+    def _connect_signals(self):
+        """连接管家信号"""
+        if hasattr(self, 'dispatcher'):
+            self.dispatcher.task_added.connect(self.add_new_task_item)
+            self.dispatcher.task_started.connect(self.mark_task_as_running)
+            self.dispatcher.task_finished.connect(self.on_task_finished)
+
+    # --- 核心逻辑槽函数 ---
+
+    @Slot(dict)
+    def add_new_task_item(self, data):
+        """[新增任务]：当点击同步按钮时，此函数触发"""
+        key = data.get('key')
+        name = data.get('name', '未知任务')
+
+        # 创建一个初始状态的任务条
+        item = TaskItem(
+            name=name,
+            status_text="排队等待中...",
+            progress_val=0,
+            duration="等待中",
+            log_text="[QUEUE] 任务已加入单线程队列，等待调度..."
+        )
+
+        # 存储并添加到布局
+        self.active_items[key] = item
+        self.dl_list_layout.insertWidget(0, item)  # 永远放在最上面
+
+        # 更新 Tab 标题数字
+        self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
+
+    @Slot(str)
+    def mark_task_as_running(self, key):
+        """[开始下载]：当任务正式被调度运行"""
+        if key in self.active_items:
+            item = self.active_items[key]
+            # 这里可以更新 UI 表现
+            item.log_box.setPlainText("[INFO] 浏览器环境已就绪，正在抓取数据...")
+            # 如果你有进度更新信号，也可以在这里继续扩展
+
+    @Slot(str, bool, str)
+    def on_task_finished(self, key, success, msg):
+        """[任务结束]：移动到已完成"""
+        if key in self.active_items:
+            # 1. 从“下载中”移除
+            old_item = self.active_items.pop(key)
+            self.dl_list_layout.removeWidget(old_item)
+
+            # 2. 在“已完成”页签创建一个新条目（或者复用旧的）
+            status = "同步成功" if success else "同步失败"
+            finished_item = TaskItem(
+                name=old_item.findChild(QLabel).text(),  # 获取之前的名字
+                status_text=status,
+                progress_val=100 if success else 0,
+                duration="已完成",
+                log_text=msg,
+                is_done=success
+            )
+            self.fi_list_layout.insertWidget(0, finished_item)
+
+            # 3. 销毁旧控件
+            old_item.deleteLater()
+
+            # 更新 Tab 标题数字
+            self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
+
+    # --- UI 辅助方法 ---
 
     def _create_list_tab(self, name):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("background: transparent;")
-
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setSpacing(15)
         layout.setContentsMargins(0, 20, 0, 20)
         layout.setAlignment(Qt.AlignTop)
-
         scroll.setWidget(content)
         self.tabs.addTab(scroll, name)
         return layout
@@ -233,43 +289,24 @@ class DownloadCenterPage(QWidget):
         container = QWidget()
         v_layout = QVBoxLayout(container)
         v_layout.setContentsMargins(0, 10, 0, 0)
-
-        # 参考截图：清空按钮栏
         tool_bar = QHBoxLayout()
         self.btn_clear = QPushButton(" 清空全部记录")
         self.btn_clear.setFixedSize(120, 32)
-        self.btn_clear.setStyleSheet("""
-            QPushButton {
-                background: #EFF6FF; color: #3B82F6; border: none; 
-                border-radius: 6px; font-weight: bold; font-size: 12px;
-            }
-            QPushButton:hover { background: #DBEAFE; }
-        """)
+        self.btn_clear.setStyleSheet(
+            "background: #EFF6FF; color: #3B82F6; border: none; border-radius: 6px; font-weight: bold; font-size: 12px;")
         tool_bar.addWidget(self.btn_clear)
         tool_bar.addStretch()
         v_layout.addLayout(tool_bar)
-
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("background: transparent;")
-
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setSpacing(15)
         layout.setContentsMargins(0, 15, 0, 20)
         layout.setAlignment(Qt.AlignTop)
-
         scroll.setWidget(content)
         v_layout.addWidget(scroll)
-
         self.tabs.addTab(container, name)
         return layout
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei", 9))
-    window = DownloadCenterPage()
-    window.show()
-    sys.exit(app.exec())

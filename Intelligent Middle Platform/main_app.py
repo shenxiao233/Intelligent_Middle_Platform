@@ -18,9 +18,10 @@ from SettingsPage import  SettingsPage
 from data_worker import DataWorker
 from xlsx_to_csv_page import XlsxToCsvPage
 from Export_data_page import BatchExportPage
-from xuanyuna_page import ExportWorkspacePage
+from xuanyuan_page import ExportWorkspacePage
 import qtawesome as qta
 from download_page import DownloadCenterPage
+from xuanyuan_page import  DownloadDispatcher
 
 
 # --- 1. 继承之前的拖拽输入框类 ---
@@ -950,6 +951,24 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
+        # --- A. 实例化调度管家 (全局唯一) ---
+        self.global_dispatcher = DownloadDispatcher()
+
+        # --- B. 实例化各个页面 (关键：提前创建需要共享 dispatcher 的页面) ---
+        self.export_page = ExportWorkspacePage()
+        self.download_page = DownloadCenterPage()
+
+        # --- C. 将管家塞进页面并建立信号连接 ---
+        self.export_page.dispatcher = self.global_dispatcher
+        self.download_page.dispatcher = self.global_dispatcher
+
+        # 核心：必须调用这个方法，让页面开始监听管家的 task_started/finished 信号
+        self.export_page.connect_dispatcher_signals()
+
+        # --- D. 设置主窗口自身的信号联动 ---
+        self.setup_connections()
+
         # 必须包含 WindowMinMaxButtonsHint 或 WindowSystemMenuHint
         # 这样 Windows 才会把该窗口列入 DWM 动画的管理名单
         self.setWindowFlags(
@@ -1096,15 +1115,28 @@ class MainWindow(QMainWindow):
 
         self.content_outer_wrapper.addWidget(self.content_container)
 
-        # --- 5. 循环创建按钮逻辑 ---
+        # --- 5. 循环创建按钮逻辑 (已修改：支持页面重用) ---
         for i, conf in enumerate(self.page_config):
-            page_inst = conf["class"](self)
+            cls = conf["class"]
+
+            # 核心修改：如果是提前创建好并注入了 dispatcher 的页面，直接使用该对象
+            if cls == ExportWorkspacePage:
+                page_inst = self.export_page
+            elif cls == DownloadCenterPage:
+                page_inst = self.download_page
+            else:
+                # 其他页面正常动态实例化
+                page_inst = cls(self)
+
+            # 信号连接逻辑
             if hasattr(page_inst, 'navigate_to_page'):
                 page_inst.navigate_to_page.connect(self.navigate_to_page_by_name)
 
+            # 将页面加入堆栈容器
             index = self.stacked_widget.addWidget(page_inst)
             self.page_names_to_index[conf["name"]] = index
 
+            # 创建导航按钮
             btn = QPushButton(f"  {conf['name']}")
             btn.setIcon(qta.icon(conf["icon"], color='#7F8C8D', color_active='#007AFF'))
             btn.setIconSize(QSize(18, 18))
@@ -1112,6 +1144,8 @@ class MainWindow(QMainWindow):
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
             btn.setCursor(Qt.PointingHandCursor)
+
+            # 绑定点击事件，使用默认参数捕获当前 index
             btn.clicked.connect(lambda checked, idx=index: self.switch_page(idx))
 
             self.nav_layout.addWidget(btn)
@@ -1119,28 +1153,28 @@ class MainWindow(QMainWindow):
 
         self.nav_layout.addStretch()
 
-        # --- 6. 最终装配 (重新调整顺序) ---
-        # 先把侧边栏加进去
+        # --- 6. 最终装配 (侧边栏 + 右侧容器) ---
+        # 1. 添加侧边栏到主布局
         self.main_layout.addWidget(self.sidebar)
 
-        # 创建一个新的垂直布局来包裹整个右侧区域
+        # 2. 创建右侧大容器
         self.right_main_container = QWidget()
         self.right_layout = QVBoxLayout(self.right_main_container)
         self.right_layout.setContentsMargins(0, 0, 0, 0)
         self.right_layout.setSpacing(0)
 
-        # 1. 先把按钮栏放最上面
-        # 注意：这里直接把 window_controls 作为一个独立的 Widget 包装，防止它被下方阴影覆盖
+        # 3. 将顶部控制栏(最小化/关闭)放入独立 Widget 并加入右侧布局
         self.controls_widget = QWidget()
         self.controls_widget.setLayout(self.window_controls)
         self.right_layout.addWidget(self.controls_widget)
 
-        # 2. 再把原本的内容区内容加进去
+        # 4. 将内容区(包含堆栈窗口)加入右侧布局
         self.right_layout.addLayout(self.content_outer_wrapper)
 
-        # 3. 最后把这个右侧大容器加入主布局
+        # 5. 将右侧大容器加入主布局
         self.main_layout.addWidget(self.right_main_container)
 
+        # 6. 设置主窗口中心部件
         self.setCentralWidget(self.central_widget)
 
     def toggle_maximized(self):
@@ -1352,11 +1386,34 @@ class MainWindow(QMainWindow):
         self.tray_icon.setContextMenu(menu)
         self.tray_icon.show()
 
+    def setup_connections(self):
+        """
+        统一管理全局信号联动。
+        这里我们监听调度器，让主窗口在任务完成时给予反馈。
+        """
+        # 1. 监听任务完成信号：可以在主窗口状态栏显示提示，或弹出气泡
+        self.global_dispatcher.task_finished.connect(self.on_global_task_finished)
+
+        # 2. 监听任务开始信号：如果需要，可以更新侧边栏呼吸灯状态
+        self.global_dispatcher.task_started.connect(
+            lambda key: self.update_cookie_status("loading", "正在同步数据...")
+        )
+
+    def on_global_task_finished(self, key, success, msg):
+        """
+        全局任务完成的回调
+        """
+        status_text = "同步成功" if success else "同步失败"
+        # 可以在这里更新你侧边栏的呼吸灯状态
+        if success:
+            self.update_cookie_status("valid", "服务已连接")
+        else:
+            self.update_cookie_status("error", "同步出现异常")
+
+        print(f"[全局通知] 任务 {key} 执行完毕: {status_text}")
+
 # --- 应用程序启动 ---
 if __name__ == "__main__":
-    # 确保 QApplication 组织名和应用名设置在 QSettings 之前
-    # QApplication.setOrganizationName("YourCompanyName")
-    # # QApplication.setApplicationName("AutomationToolbox")
 
     # 1. 创建 QApplication 实例 (只创建一次)
     app = QApplication(sys.argv)

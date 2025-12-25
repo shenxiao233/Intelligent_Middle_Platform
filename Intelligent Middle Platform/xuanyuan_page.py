@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar,
     QGridLayout, QFrame, QTextEdit, QScrollArea, QDialog, QFormLayout, QDialogButtonBox
 )
-from PySide6.QtCore import Qt, QThread, Signal, Slot, QDate, QTimer
+from PySide6.QtCore import Qt, QThread, Signal, Slot, QDate, QTimer,QObject
 from SettingsPage import  SettingsPage
 
 # 新增：自动化后台线程
@@ -42,6 +42,61 @@ class AutomationThread(QThread):
                 self.finished_signal.emit(self.task_key, False, "同步失败：未找到文件")
         except Exception as e:
             self.finished_signal.emit(self.task_key, False, f"异常: {str(e)}")
+
+
+class DownloadDispatcher(QObject):
+    """
+    这是一个全局管家类。
+    它负责接收任务、管理排队，并确保同一时间只有一个 AutomationThread 在运行。
+    """
+    # 定义信号，用来告诉 UI 界面：任务状态变了
+    task_added = Signal(dict)  # 任务进入队列了
+    task_started = Signal(str)  # 某个任务正式开始下载了
+    task_finished = Signal(str, bool, str)  # 某个任务跑完了
+
+    def __init__(self):
+        super().__init__()
+        self.queue = []  # 这是一个等待列表
+        self.is_running = False  # 一个开关，记录当前是不是正忙
+        self.current_worker = None
+
+    def add_task(self, task_data):
+        """
+        外面点击“同步”按钮时，就调用这个方法把任务扔进来
+        """
+        self.queue.append(task_data)
+        self.task_added.emit(task_data)  # 通知下载中心：来新活了，快显示出来
+        self._check_next()
+
+    def _check_next(self):
+        """
+        核心逻辑：检查是否可以跑下一个
+        """
+        # 如果当前没在忙，而且队列里还有人排队
+        if not self.is_running and self.queue:
+            task = self.queue.pop(0)  # 取出排在最前面的人
+            self._execute_task(task)
+
+    def _execute_task(self, task):
+        self.is_running = True
+        self.task_started.emit(task['key'])
+
+        # 这里就是你原本的 AutomationThread
+        self.worker = AutomationThread(
+            task['key'], task['url'], task['start_date'],
+            task['end_date'], task['cookie_json']
+        )
+        # 任务跑完后，通知 dispatcher
+        self.worker.finished_signal.connect(self._on_finished)
+        self.worker.start()
+
+    def _on_finished(self, key, success, msg):
+        self.is_running = False
+        self.task_finished.emit(key, success, msg)
+        # 重点：一个跑完了，立刻去找下一个
+        self._check_next()
+
+
 
 
 # --- 1. 任务配置弹窗 (支持新增和修改) ---
@@ -593,46 +648,78 @@ class ExportWorkspacePage(QWidget):
             self.save_config()  # 新增后保存
 
     def handle_sync_start(self, key):
+        """
+        根据 SITE_CONFIGS["轩辕"] 结构，精准提取并同步任务
+        """
+        # 1. 找到对应的卡片对象
         card = self.task_cards.get(key)
-        if not card: return
+        if not card:
+            return
 
-        # 1. 获取日期属性（直接读取你的 CustomDateRangePicker 成员变量）
+        # 2. 采集 UI 上的日期范围
         start_dt = card.date_picker.start_date.toString("yyyy-MM-dd")
         end_dt = card.date_picker.end_date.toString("yyyy-MM-dd")
 
-        # 2. 获取轩辕站点的 Cookie 字典
-        # 返回类似: {"AEOLUS_MOZI_TOKEN": "...", "family": "...", "XY_TOKEN": "..."}
+        # 3. 核心：根据站点配置提取 Cookie
+        # 这里的 SettingsPage.get_all_cookies("轩辕") 内部会根据
+        # SITE_CONFIGS["轩辕"] 的 Key 列表去获取对应的 QSettings 值
         raw_cookies_dict = SettingsPage.get_all_cookies("轩辕")
 
-        # 3. 核心转换：构造 DrissionPage 需要的标准 Cookie 列表
         cookie_list = []
-        for name, value in raw_cookies_dict.items():
-            if value:  # 只有值不为空时才注入
-                cookie_list.append({
-                    "domain": ".ele.me",  # 轩辕业务统一所在的根域名
-                    "name": name,
-                    "value": str(value)
-                })
+        # 遍历返回的字典（它现在只包含 AEOLUS_MOZI_TOKEN, family, XY_TOKEN）
+        if isinstance(raw_cookies_dict, dict):
+            for name, value in raw_cookies_dict.items():
+                if value and str(value).strip():  # 确保值不为空且非纯空格
+                    cookie_list.append({
+                        "domain": ".ele.me",
+                        "name": str(name),
+                        "value": str(value),
+                        "path": "/"
+                    })
 
-        # 4. 转换为 JSON 字符串传给线程
-        cookie_json_str = json.dumps(cookie_list)
+        # 打印日志以便在控制台确认获取到的 Token 数量是否符合预期
+        print(f"🚀 [任务准备] 卡片: {card.lbl_name.text()} | 站点: 轩辕 | 有效Cookie: {len(cookie_list)}个")
 
-        # 5. UI 状态反馈
-        card.set_loading(True)
 
-        # 6. 启动后台线程
-        # 注意：这里的 self.worker 建议保存引用，防止线程被意外释放
-        self.worker = AutomationThread(
-            key,
-            card.task_url,
-            start_dt,
-            end_dt,
-            cookie_json_str
-        )
-        self.worker.finished_signal.connect(self.handle_sync_finished)
-        self.worker.start()
+        # 4. 封装任务包
+        task_data = {
+            "key": key,
+            "name": card.lbl_name.text(),
+            "url": card.task_url,
+            "start_date": start_dt,
+            "end_date": end_dt,
+            "cookie_json": json.dumps(cookie_list)
+        }
 
-        print(f"[{time.strftime('%H:%M:%S')}] 任务「{card.lbl_name.text()}」已进入后台同步流")
+        # 5. 提交给全局调度管家
+        if hasattr(self, 'dispatcher') and self.dispatcher is not None:
+            # 向管家队列添加任务
+            self.dispatcher.add_task(task_data)
+
+            # 更新当前轩辕页面卡片的 UI 状态
+            # 先设为“琥珀色”代表正在排队，待管家真正启动时会变为“蓝色”
+            card.set_loading(True)
+            card.lbl_status.setText("● 已加入队列，排队中...")
+            card.lbl_status.setStyleSheet("color: #F59E0B; font-size: 12px; font-weight: bold;")
+        else:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "调度错误", "Dispatcher 未正确注入，请检查 MainWindow 的初始化顺序！")
+
+    def connect_dispatcher_signals(self):
+        """让轩辕页面听从管家的指挥"""
+        if hasattr(self, 'dispatcher'):
+            # 监听任务开始：更新对应卡片的 UI 状态
+            self.dispatcher.task_started.connect(self._on_task_actually_started)
+            # 监听任务结束：恢复对应卡片的 UI 状态（你已有的 handle_sync_finished）
+            self.dispatcher.task_finished.connect(self.handle_sync_finished)
+
+    def _on_task_actually_started(self, key):
+        """当管家真正从队列里取出这个任务并开始跑时触发"""
+        if key in self.task_cards:
+            card = self.task_cards[key]
+            card.set_loading(True)
+            card.lbl_status.setText("● 正在同步中...")
+            card.lbl_status.setStyleSheet("color: #6366F1; font-size: 12px; font-weight: bold;")
 
     @Slot(str, bool, str)
     def handle_sync_finished(self, key, success, message):
