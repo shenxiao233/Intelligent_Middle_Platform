@@ -99,8 +99,11 @@ class DownloadDispatcher(QObject):
 
 # --- 统一优化后的高级配置弹窗 ---
 class TaskConfigDialog(QDialog):
-    def __init__(self, parent=None, name="", url="", task_type="单页单表", tabs_info=None):
+    def __init__(self, parent=None, name="", url="", task_type="单页单表", config_info=None):
         super().__init__(parent)
+        self.config_info = config_info if config_info else {}
+        self.dynamic_inputs = {}  # 用于存储动态生成的输入框对象
+        self.final_data = {}  # 用于存结果
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(500)
@@ -238,32 +241,32 @@ class TaskConfigDialog(QDialog):
         lbl.setStyleSheet("color: #6B7280; font-size: 12px; font-weight: 700; margin-top: 5px; border: none;")
         self.content_layout.addWidget(lbl)
 
-
-    def _create_tab_input(self, label, placeholder):
+    def _create_dynamic_input(self, key, label, placeholder):
+        """通用动态输入框创建器"""
         lbl = QLabel(label)
-        # 修改标签颜色为正常的深灰色
         lbl.setStyleSheet("font-size: 12px; color: #4B5563; font-weight: 700; margin-top: 5px; border: none;")
 
         edit = QLineEdit()
         edit.setPlaceholderText(placeholder)
-        # 修改为与主输入框一致的 input_style，去掉紫色和虚线
+
+        # 回显逻辑
+        if hasattr(self, 'config_info') and key in self.config_info:
+            edit.setText(str(self.config_info[key]))
+
         edit.setStyleSheet("""
             QLineEdit {
-                padding: 10px 15px;
-                border: 1.5px solid #E5E7EB;
-                border-radius: 10px;
-                background-color: #F9FAFB;
-                font-size: 13px;
-                color: #374151;
+                padding: 10px 15px; border: 1.5px solid #E5E7EB; border-radius: 10px;
+                background-color: #F9FAFB; font-size: 13px; color: #374151;
             }
-            QLineEdit:focus {
-                border: 2px solid #6366F1;
-                background-color: white;
-            }
+            QLineEdit:focus { border: 2px solid #6366F1; background-color: white; }
         """)
+
         self.tabs_layout.addWidget(lbl)
         self.tabs_layout.addWidget(edit)
-        self.tab_inputs.append(edit)
+
+        # 存入字典，以便 accept() 时通过 key 获取内容
+        self.dynamic_inputs[key] = edit
+        return edit
 
 
     def accept(self):
@@ -277,12 +280,13 @@ class TaskConfigDialog(QDialog):
             self.name_input.setStyleSheet(self.name_input.styleSheet() + "border: 1.5px solid #EF4444;")
             return
 
-        # --- 核心修复：在销毁控件前，把数据提取出来存为类属性 ---
+        dynamic_data = {key: edit.text().strip() for key, edit in self.dynamic_inputs.items()}
+
         self.final_data = {
-            "name": name_text,
-            "url": url_text,
+            "name": self.name_input.text().strip(),
+            "url": self.url_input.toPlainText().strip(),
             "type": self.type_combo.currentText(),
-            "tabs": [edit.text().strip() for edit in self.tab_inputs if edit.text().strip()]
+            "config": dynamic_data  # 包含 table_names, level_1_tabs 等
         }
 
         # 2. 彻底清理布局展示动画
@@ -335,30 +339,30 @@ class TaskConfigDialog(QDialog):
             event.accept()
 
     def _on_type_changed(self, text):
-        """动态增减 TAB 输入框逻辑"""
-        # 1. 使用 setUpdatesEnabled(False) 减少清理过程中的界面闪烁
+        """动态增减配置输入框逻辑"""
         self.setUpdatesEnabled(False)
 
-        # 2. 清理旧的（建议使用 deleteLater 彻底释放内存）
+        # 清理旧控件
         for i in reversed(range(self.tabs_layout.count())):
             widget = self.tabs_layout.itemAt(i).widget()
             if widget:
                 widget.setParent(None)
                 widget.deleteLater()
-        self.tab_inputs = []
 
-        # 3. 根据选中的属性增加输入框
+        self.dynamic_inputs = {}
+
+        # --- 修复这里的调用，添加 key 参数 ---
+        if "多表" in text:
+            # 参数 1: key (用于保存数据), 参数 2: label, 参数 3: placeholder
+            self._create_dynamic_input("table_names", "数据表名称", "例如：销售明细表, 库存汇总表")
+
         if "有TAB" in text:
-            self._create_tab_input("一级 TAB 名称列表", "多个名称请用英文逗号分隔，例如：自营,零售,加盟")
+            self._create_dynamic_input("level_1_tabs", "一级 TAB 名称列表", "例如：自营,零售,加盟")
 
         if "多级TAB" in text:
-            self._create_tab_input("二级 TAB 名称列表", "例如：日汇总,月汇总")
+            self._create_dynamic_input("level_2_tabs", "多级 TAB 名称列表", "例如：日汇总,月汇总")
 
-        # 4. 重新启用界面更新
         self.setUpdatesEnabled(True)
-
-        # 5. 【核心点】强制窗口自适应新内容的高度
-        # 使用 QTimer 是为了确保在控件渲染完成后再计算高度，防止计算偏差
         QTimer.singleShot(10, self.adjustSize)
 
     def adjust_window_size(self):
@@ -671,18 +675,15 @@ class ExportWorkspacePage(QWidget):
         """将当前所有卡片保存到 JSON"""
         config_data = {}
         for key, card in self.task_cards.items():
-            # 从 card 对象中提取所有相关字段
-            # 使用 getattr 是为了防止某些旧卡片对象没有新属性而导致崩溃
             config_data[key] = {
                 "name": card.lbl_name.text(),
                 "url": card.task_url,
                 "type": getattr(card, 'task_type', "单页单表"),
-                "tabs": getattr(card, 'tabs_info', [])
+                "config": getattr(card, 'config_info', {})  # 存储包含表名、TAB在内的完整字典
             }
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, ensure_ascii=False, indent=4)
-            print("配置已成功保存到本地")
         except Exception as e:
             print(f"保存配置失败: {e}")
 
@@ -697,29 +698,24 @@ class ExportWorkspacePage(QWidget):
 
     def show_edit_dialog(self, key):
         card = self.task_cards[key]
-
-        # 从 card 中获取存储的所有信息
-        # 这里的属性名（如 card.task_type）取决于你卡片类是如何定义的
+        # 传入旧的 config 字典，以便弹窗回显表名和 TAB
         dialog = TaskConfigDialog(
             self,
             name=card.lbl_name.text(),
             url=card.task_url,
-            task_type=getattr(card, 'task_type', "单页单表"),  # 如果没有该属性则传默认值
-            tabs_info=getattr(card, 'tabs_info', None)  # 同上
+            task_type=getattr(card, 'task_type', "单页单表"),
+            config_info=getattr(card, 'config_info', {})
         )
 
         if dialog.exec():
-            # 获取修改后的完整字典
             result = dialog.get_data()
 
-            # 更新卡片显示的文字
+            # 更新卡片对象存储
             card.update_info(result["name"], result["url"])
-
-            # 记得把新保存的类型和标签也存回卡片对象中，否则下次打开还是默认值
             card.task_type = result["type"]
-            card.tabs_info = result["tabs"]
+            card.config_info = result["config"]  # 这里包含了新的表名、TAB等所有动态内容
 
-            self.save_config()
+            self.save_config()  # 保存到本地 JSON
 
     def add_card(self, name, key, url, auto_save=True):
         yesterday = QDate.currentDate().addDays(-1)
