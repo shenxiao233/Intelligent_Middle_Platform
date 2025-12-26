@@ -23,10 +23,17 @@ class AutomationThread(QThread):
         self.start_date = start_date
         self.end_date = end_date
         self.cookie_json = cookie_json
+        self._is_running = True
 
     def _log_callback(self, log_message):
         """日志回调函数，将日志通过信号发送到UI"""
-        self.log_signal.emit(self.task_key, log_message)
+        if self._is_running:
+            self.log_signal.emit(self.task_key, log_message)
+    
+    def terminate(self):
+        """停止线程执行"""
+        self._is_running = False
+        super().terminate()
 
     def run(self):
         try:
@@ -109,6 +116,26 @@ class DownloadDispatcher(QObject):
         self.task_finished.emit(key, success, msg, download_path)
         # 重点：一个跑完了，立刻去找下一个
         self._check_next()
+    
+    def abort_task(self, key):
+        """
+        中止指定任务
+        如果任务在队列中，从队列移除
+        如果任务正在执行，尝试停止
+        """
+        # 1. 检查是否在队列中 - 从后往前遍历以避免索引问题
+        for i in range(len(self.queue) - 1, -1, -1):
+            if self.queue[i]['key'] == key:
+                self.queue.pop(i)
+        
+        # 2. 检查是否正在执行
+        if self.is_running and hasattr(self, 'worker') and self.worker.task_key == key:
+            # 如果worker有停止方法，调用它
+            if hasattr(self.worker, 'terminate'):
+                self.worker.terminate()
+            self.is_running = False
+            self.task_finished.emit(key, False, "任务已中止", None)
+            self._check_next()
 
 
 # --- 统一优化后的高级配置弹窗 ---

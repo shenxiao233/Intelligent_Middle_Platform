@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QApplication,QFrame, QScrollArea,
+    QApplication, QFrame, QScrollArea,
     QTabWidget
 )
 from PySide6.QtCore import Signal
@@ -14,7 +14,10 @@ from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen, QTextCursor
 
 
 class TaskItem(QWidget):
-    def __init__(self, name, status_text, progress_val, duration, log_text, is_done=False, download_path=None):
+    abort_requested = Signal(str)
+    
+    def __init__(self, name, status_text, progress_val, duration, log_text, is_done=False, download_path=None, task_key=None):
+        self.task_key = task_key
         super().__init__()
         self.is_expanded = False
         self.header_height = 80
@@ -27,7 +30,7 @@ class TaskItem(QWidget):
         self.start_time = None
         self.elapsed_time = 0
         self.timer = None
-        
+
         # 必须设置，否则自绘可能不刷新
         self.setAttribute(Qt.WA_StyledBackground, True)
 
@@ -36,7 +39,7 @@ class TaskItem(QWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        # --- 顶部信息层 (确保背景透明，否则会遮挡自绘的圆角) --- 
+        # --- 顶部信息层 (确保背景透明，否则会遮挡自绘的圆角) ---
         self.header = QWidget()
         self.header.setFixedHeight(self.header_height)
         self.header.setAttribute(Qt.WA_TranslucentBackground)
@@ -74,7 +77,7 @@ class TaskItem(QWidget):
         # 按钮区域
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
-        
+
         # 中止按钮 - 仅在未完成时显示
         if not self.is_done:
             btn_stop = QPushButton("中止")
@@ -85,8 +88,9 @@ class TaskItem(QWidget):
                 "QPushButton:pressed { background-color: #FEE2E2; }"
             )
             btn_stop.setCursor(Qt.PointingHandCursor)
+            btn_stop.clicked.connect(lambda: self.abort_requested.emit(self.task_key))
             btn_layout.addWidget(btn_stop)
-        
+
         # 打开文件夹按钮 - 仅在完成时显示
         if self.is_done and self.download_path:
             btn_open = QPushButton("打开文件夹")
@@ -182,7 +186,7 @@ class TaskItem(QWidget):
             self.log_box.hide()
             self.setFixedHeight(self.header_height)
         self.update()  # 触发重绘
-    
+
     def open_download_folder(self):
         """打开下载文件夹"""
         if self.download_path and os.path.exists(self.download_path):
@@ -195,7 +199,7 @@ class TaskItem(QWidget):
                     os.system(f'xdg-open "{self.download_path}"')
             except Exception as e:
                 print(f"打开文件夹失败: {e}")
-    
+
     def start_timer(self):
         """开始计时"""
         if not self.is_done:
@@ -204,24 +208,24 @@ class TaskItem(QWidget):
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.update_duration)
             self.timer.start(1000)  # 每秒更新一次
-    
+
     def stop_timer(self):
         """停止计时"""
         if self.timer:
             self.timer.stop()
             self.timer = None
-    
+
     def update_duration(self):
         """更新运行时间显示"""
         if self.start_time:
             self.elapsed_time = time.time() - self.start_time
             minutes, seconds = divmod(int(self.elapsed_time), 60)
             self.time_lbl.setText(f"运行时间：{minutes:02d}:{seconds:02d}")
-    
+
     def set_duration_text(self, text):
         """设置时间显示文本"""
         self.time_lbl.setText(text)
-        
+
     def update_log(self, log_message):
         """更新实时日志"""
         current_log = self.log_box.toPlainText()
@@ -234,6 +238,7 @@ class TaskItem(QWidget):
 
 class DownloadCenterPage(QWidget):
     back_requested = Signal()
+    active_tasks_updated = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -309,7 +314,7 @@ class DownloadCenterPage(QWidget):
 
         # 检查是否是第一个任务
         is_first_task = len(self.active_items) == 0
-        
+
         # 根据是否是第一个任务设置不同的初始状态
         if is_first_task:
             status_text = "下载中..."
@@ -324,8 +329,12 @@ class DownloadCenterPage(QWidget):
             status_text=status_text,
             progress_val=0,
             duration="等待中",
-            log_text=log_text
+            log_text=log_text,
+            task_key=key
         )
+
+        # 连接中止信号
+        item.abort_requested.connect(self.abort_task)
 
         # 存储并添加到布局
         self.active_items[key] = item
@@ -338,6 +347,8 @@ class DownloadCenterPage(QWidget):
         # 更新 Tab 标题数字
         self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
         self.tabs.setTabText(1, f"已完成 ({len(self.finished_tasks)})")
+        # 发出活动任务更新信号
+        self.active_tasks_updated.emit(len(self.active_items))
 
     @Slot(str)
     def mark_task_as_running(self, key):
@@ -355,13 +366,33 @@ class DownloadCenterPage(QWidget):
             # 开始计时
             item.start_timer()
             # 如果你有进度更新信号，也可以在这里继续扩展
-    
+
     @Slot(str, str)
     def on_task_log_updated(self, key, log_message):
         """处理任务日志更新事件"""
         if key in self.active_items:
             item = self.active_items[key]
             item.update_log(log_message)
+
+    @Slot(str)
+    def abort_task(self, key):
+        """[任务中止]：从下载队列中移除任务"""
+        if key in self.active_items:
+            # 1. 从active_items中移除
+            old_item = self.active_items.pop(key)
+            # 2. 从布局中移除
+            self.dl_list_layout.removeWidget(old_item)
+            # 3. 停止计时
+            old_item.stop_timer()
+            # 4. 调用调度器的中止方法
+            if hasattr(self, 'dispatcher'):
+                self.dispatcher.abort_task(key)
+            # 5. 更新Tab标题数字
+            self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
+            # 6. 发出活动任务更新信号
+            self.active_tasks_updated.emit(len(self.active_items))
+            # 7. 销毁旧控件
+            old_item.deleteLater()
 
     @Slot(str, bool, str, str)
     def on_task_finished(self, key, success, msg, download_path=None):
@@ -370,10 +401,10 @@ class DownloadCenterPage(QWidget):
             # 1. 从“下载中”移除
             old_item = self.active_items.pop(key)
             self.dl_list_layout.removeWidget(old_item)
-            
+
             # 停止计时
             old_item.stop_timer()
-            
+
             # 获取运行时间
             elapsed_time = old_item.elapsed_time
             minutes, seconds = divmod(int(elapsed_time), 60)
@@ -392,7 +423,7 @@ class DownloadCenterPage(QWidget):
                 is_done=success,
                 download_path=download_path
             )
-            
+
             # 设置已完成任务的时间显示
             finished_item.set_duration_text(f"任务用时：{duration_str}")
             self.fi_list_layout.insertWidget(0, finished_item)
@@ -475,11 +506,11 @@ class DownloadCenterPage(QWidget):
         if not os.path.exists(self.log_file_path):
             print("下载日志文件不存在，跳过加载")
             return
-        
+
         try:
             with open(self.log_file_path, 'r', encoding='utf-8') as f:
                 self.finished_tasks = json.load(f)
-            
+
             # 重新创建已完成任务的UI
             for task_log in self.finished_tasks:
                 # 如果日志中包含时间戳，将其添加到状态文本中
@@ -491,7 +522,7 @@ class DownloadCenterPage(QWidget):
                         status_text = f"同步成功 {timestamp}"
                     elif '同步失败' in status_text and timestamp not in status_text:
                         status_text = f"同步失败 {timestamp}"
-                
+
                 finished_item = TaskItem(
                     name=task_log['name'],
                     status_text=status_text,
@@ -504,9 +535,9 @@ class DownloadCenterPage(QWidget):
                 # 设置正确的时间显示格式
                 finished_item.set_duration_text(f"任务用时：{task_log['duration']}")
                 self.fi_list_layout.insertWidget(0, finished_item)
-            
+
             print(f"成功加载 {len(self.finished_tasks)} 条下载记录")
-            
+
             # 更新 Tab 标题数字
             self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
             self.tabs.setTabText(1, f"已完成 ({len(self.finished_tasks)})")
@@ -517,7 +548,7 @@ class DownloadCenterPage(QWidget):
         """清空下载记录"""
         if not self.finished_tasks:
             return
-        
+
         # 实现清空动画
         self.animate_clear_records()
 
@@ -586,4 +617,3 @@ class DownloadCenterPage(QWidget):
 
         self._clear_anims.append(master_group)
         master_group.start()
-
