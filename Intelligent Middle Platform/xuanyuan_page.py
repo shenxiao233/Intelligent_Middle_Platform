@@ -13,7 +13,7 @@ from SettingsPage import  SettingsPage
 
 # 新增：自动化后台线程
 class AutomationThread(QThread):
-    finished_signal = Signal(str, bool, str)  # 参数：任务Key, 是否成功, 提示消息
+    finished_signal = Signal(str, bool, str, str)  # 参数：任务Key, 是否成功, 提示消息, 下载路径
 
     def __init__(self, task_key, url, start_date, end_date, cookie_json):
         super().__init__()
@@ -37,11 +37,13 @@ class AutomationThread(QThread):
             worker.quit()
 
             if result_path:
-                self.finished_signal.emit(self.task_key, True, "同步完成")
+                # 获取文件所在目录
+                download_dir = os.path.dirname(result_path)
+                self.finished_signal.emit(self.task_key, True, "同步完成", download_dir)
             else:
-                self.finished_signal.emit(self.task_key, False, "同步失败：未找到文件")
+                self.finished_signal.emit(self.task_key, False, "同步失败：未找到文件", None)
         except Exception as e:
-            self.finished_signal.emit(self.task_key, False, f"异常: {str(e)}")
+            self.finished_signal.emit(self.task_key, False, f"异常: {str(e)}", None)
 
 
 class DownloadDispatcher(QObject):
@@ -52,7 +54,7 @@ class DownloadDispatcher(QObject):
     # 定义信号，用来告诉 UI 界面：任务状态变了
     task_added = Signal(dict)  # 任务进入队列了
     task_started = Signal(str)  # 某个任务正式开始下载了
-    task_finished = Signal(str, bool, str)  # 某个任务跑完了
+    task_finished = Signal(str, bool, str, str)  # 某个任务跑完了 (key, success, msg, download_path)
 
     def __init__(self):
         super().__init__()
@@ -90,9 +92,9 @@ class DownloadDispatcher(QObject):
         self.worker.finished_signal.connect(self._on_finished)
         self.worker.start()
 
-    def _on_finished(self, key, success, msg):
+    def _on_finished(self, key, success, msg, download_path):
         self.is_running = False
-        self.task_finished.emit(key, success, msg)
+        self.task_finished.emit(key, success, msg, download_path)
         # 重点：一个跑完了，立刻去找下一个
         self._check_next()
 
