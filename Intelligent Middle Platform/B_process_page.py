@@ -26,102 +26,136 @@ class MergePage(QWidget):
         self.apply_styles()
 
     def apply_styles(self):
-        """应用现代化样式，移除输入框阴影，只保留焦点边框高亮"""
-        PRIMARY_COLOR = "#007AFF"
-        SUCCESS_COLOR = "#34C759"
-        BACKGROUND_COLOR = "#F0F2F5"
-
+        """应用统一的设计风格"""
+        PRIMARY_COLOR = "#6366F1"
+        BACKGROUND_COLOR = "#F3F4F6"
+        
         self.setStyleSheet(f"""
-            QWidget {{ background-color: {BACKGROUND_COLOR}; }}
-
-            QLabel {{ color: #2C3E50; font-family: "Microsoft YaHei"; }}
-
-            /* 标题 */
-            #TitleLabel {{ color: {PRIMARY_COLOR}; margin-bottom: 10px; }}
-
-            /* 输入框 (移除阴影，只保留焦点边框高亮) */
-            QLineEdit {{
-                border: 1px solid #D1D5DA; /* 默认边框 */
-                border-radius: 6px;
-                padding: 8px 10px;
-                background-color: white;
-                font-size: 10pt;
-                /* 移除了 box-shadow */
-                transition: border-color 0.2s; /* 仅保留边框颜色过渡 */
+            /* 页面基础样式 */
+            QWidget {{ 
+                background-color: {BACKGROUND_COLOR}; 
+                font-family: 'Segoe UI', 'Microsoft YaHei'; 
             }}
-            QLineEdit:focus {{ /* 焦点效果 */
-                border: 1px solid {PRIMARY_COLOR}; /* 高亮边框颜色 */
-                box-shadow: 0 0 5px rgba(0, 122, 255, 0.3); /* 柔和的焦点光晕 */
+            
+            /* 标签样式 */
+            QLabel {{ 
+                background: transparent; 
+                border: none; 
             }}
-
-            /* 浏览按钮 */
-            .BrowseButton {{
-                background-color: #3498db;
-                color: white;
-                border-radius: 6px;
-                font-size: 10pt;
-                padding: 0 10px;
+            
+            /* 标题和描述 */
+            #HeaderLabel {{ 
+                font-size: 24px; 
+                font-weight: 800; 
+                color: #111827; 
             }}
-            .BrowseButton:hover {{
-                background-color: #2980b9;
+            
+            #DescLabel {{ 
+                font-size: 13px; 
+                color: #6B7280; 
             }}
-
-            /* 运行按钮 */
-            #RunButton {{
-                background-color: {SUCCESS_COLOR};
-                color: white;
-                border-radius: 10px;
-                padding: 12px;
+            
+            /* 配置卡片 */
+            #ConfigCard {{ 
+                background-color: white; 
+                border: 1px solid #E5E7EB; 
+                border-radius: 15px; 
+            }}
+            
+            /* 输入标题 */
+            #InputTitle {{ 
+                font-size: 14px; 
+                font-weight: 700; 
+                color: #374151; 
+            }}
+            
+            /* 输入框样式 */
+            QLineEdit {{ 
+                border: 1px solid #D1D5DB; 
+                border-radius: 8px; 
+                padding: 10px; 
+                background: white; 
+                color: #111827; 
+            }}
+            
+            QLineEdit:focus {{ 
+                border: 2px solid {PRIMARY_COLOR}; 
+            }}
+            
+            /* 按钮样式 */
+            QPushButton {{ 
+                background-color: white; 
+                border: 1px solid #D1D5DB; 
+                border-radius: 8px; 
+                padding: 8px; 
+                font-weight: bold; 
+                color: #374151; 
+            }}
+            
+            QPushButton:hover {{ 
+                background-color: #F9FAFB; 
+                border-color: #9CA3AF; 
+            }}
+            
+            /* 主按钮样式 */
+            #PrimaryBtn {{ 
+                background-color: {PRIMARY_COLOR}; 
+                color: white; 
+                border: none; 
+                font-size: 16px; 
                 font-weight: bold;
-                box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
-                transition: background-color 0.2s, box-shadow 0.2s;
+                border-radius: 12px; 
+                padding: 12px; 
             }}
-            #RunButton:hover {{
-                background-color: #2CAE4E;
-                box-shadow: 0 6px 15px rgba(52, 199, 89, 0.4);
+            
+            #PrimaryBtn:hover {{ 
+                background-color: #4F46E5; 
             }}
-            #RunButton:disabled {{
-                background-color: #C8C8C8;
-                box-shadow: none;
+            
+            #PrimaryBtn:disabled {{ 
+                background-color: #C7D2FE; 
             }}
         """)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(40, 30, 40, 30)
+        main_layout.setContentsMargins(30, 30, 30, 30)
         main_layout.setSpacing(20)
 
         # 标题
         title_label = QLabel("订单数据合并工具")
-        title_label.setObjectName("TitleLabel")
-        title_font = QFont("Microsoft YaHei", 24, QFont.Bold)
-        title_label.setFont(title_font)
+        title_label.setObjectName("HeaderLabel")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
 
         # 描述
         desc_label = QLabel("请依次选择两个 CSV 文件和结果输出目录，点击开始合并。")
         desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc_label.setStyleSheet("color: #7f8c8d; font-size: 10pt; margin-bottom: 15px;")
+        desc_label.setObjectName("DescLabel")
         main_layout.addWidget(desc_label)
 
         # 文件选择控件
-        self.entry_f1 = self.create_file_selector(
+        file_frame1, self.entry_f1 = self.create_file_selector(
             "步骤 1: 选择【有效商户明细】文件 (.csv)", "选择有效商户明细文件", self.select_file, "*.csv"
         )
-        self.entry_f2 = self.create_file_selector(
+        main_layout.addWidget(file_frame1)
+        
+        file_frame2, self.entry_f2 = self.create_file_selector(
             "步骤 2: 选择【商智核/超抢手】文件 (.csv)", "选择商智核/超抢手文件", self.select_file, "*.csv"
         )
+        main_layout.addWidget(file_frame2)
+        
         self.frame_output, self.entry_output = self.create_file_selector(
             "步骤 3: 选择输出结果保存路径 (文件夹)", "选择输出文件夹", self.select_directory, is_directory=True
         )
+        main_layout.addWidget(self.frame_output)
         self.entry_output.setText(self.desktop_dir)
 
         main_layout.addWidget(self.create_separator())
 
         # 运行按钮
-        self.btn_run = QPushButton("🚀 开始合并并导出")
-        self.btn_run.setObjectName("RunButton")
+        self.btn_run = QPushButton("开始合并并导出")
+        self.btn_run.setObjectName("PrimaryBtn")
         self.btn_run.setFont(QFont("Microsoft YaHei", 15, QFont.Bold))
         self.btn_run.setFixedHeight(60)
         self.btn_run.clicked.connect(self.start_processing)
@@ -139,43 +173,47 @@ class MergePage(QWidget):
     def create_separator(self):
         line = QLabel()
         line.setFixedHeight(1)
-        line.setStyleSheet("background-color: #D1D5DA; margin-top: 5px; margin-bottom: 5px;")
+        line.setStyleSheet("background-color: #E5E7EB; margin: 20px 0;")
         return line
 
     def create_file_selector(self, label_text, dialog_title, command_func, filetypes=None, is_directory=False):
-        vbox = QVBoxLayout()
-        vbox.setSpacing(5)
+        # 创建一个容器widget
+        container = QWidget()
+        container.setObjectName("ConfigCard")
+        
+        # 主布局
+        layout = QVBoxLayout(container)
+        layout.setSpacing(10)
+        layout.setContentsMargins(25, 25, 25, 25)
 
+        # 标签
         label = QLabel(label_text)
-        label.setStyleSheet("color: #34495e; font-weight: 500; font-size: 11pt;")
-        vbox.addWidget(label)
+        label.setObjectName("InputTitle")
+        layout.addWidget(label)
 
+        # 输入框和按钮布局
         hbox = QHBoxLayout()
-        hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(10)
+        hbox.setContentsMargins(0, 0, 0, 0)
 
         entry = QLineEdit()
         entry.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         entry.setReadOnly(True)
-        entry.setFixedHeight(36)
+        entry.setFixedHeight(40)
 
         button_text = "选择目录" if is_directory else "浏览文件"
         btn = QPushButton(button_text)
         btn.setObjectName("BrowseButton")
         btn.setFixedWidth(100)
-        btn.setFixedHeight(36)
+        btn.setFixedHeight(40)
         btn.clicked.connect(lambda: command_func(entry, dialog_title, filetypes))
 
         hbox.addWidget(entry)
         hbox.addWidget(btn)
 
-        vbox.addLayout(hbox)
-        self.layout().addLayout(vbox)
+        layout.addLayout(hbox)
 
-        if is_directory:
-            return vbox, entry
-        else:
-            return entry
+        return container, entry
 
     def select_file(self, entry_widget, title, filetypes):
         file_filter = f"CSV 文件 ({filetypes});;所有文件 (*.*)"
