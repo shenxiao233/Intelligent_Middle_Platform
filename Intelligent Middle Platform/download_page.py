@@ -89,7 +89,7 @@ class TaskItem(QWidget):
         
         # 打开文件夹按钮 - 仅在完成时显示
         if self.is_done and self.download_path:
-            btn_open = QPushButton("📂 打开文件夹")
+            btn_open = QPushButton("打开文件夹")
             btn_open.setFixedSize(110, 26)
             btn_open.setStyleSheet(
                 "QPushButton { color: #3B82F6; border: 1px solid #3B82F6; border-radius: 4px; font-weight:bold; background: white; }"
@@ -273,7 +273,7 @@ class DownloadCenterPage(QWidget):
 
         # 页签初始化
         self.dl_list_layout = self._create_list_tab("下载中 (0)")
-        self.fi_list_layout = self._create_finished_tab("已完成")
+        self.fi_list_layout = self._create_finished_tab("已完成 (0)")
 
         layout.addWidget(self.tabs)
 
@@ -319,7 +319,7 @@ class DownloadCenterPage(QWidget):
 
         # 存储并添加到布局
         self.active_items[key] = item
-        self.dl_list_layout.insertWidget(0, item)  # 永远放在最上面
+        self.dl_list_layout.addWidget(item)  # 添加到队列底部
 
         # 如果是第一个任务，立即开始计时
         if is_first_task:
@@ -327,6 +327,7 @@ class DownloadCenterPage(QWidget):
 
         # 更新 Tab 标题数字
         self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
+        self.tabs.setTabText(1, f"已完成 ({len(self.finished_tasks)})")
 
     @Slot(str)
     def mark_task_as_running(self, key):
@@ -334,6 +335,12 @@ class DownloadCenterPage(QWidget):
         if key in self.active_items:
             item = self.active_items[key]
             # 更新 UI 表现
+            # 找到状态标签并更新为"下载中"
+            for child in item.header.findChildren(QLabel):
+                if "排队等待中" in child.text():
+                    child.setText("下载中...")
+                    child.setStyleSheet("color: #6366F1; font-weight: bold; font-size: 11px;")
+                    break
             item.log_box.setPlainText("[INFO] 浏览器环境已就绪，正在抓取数据...")
             # 开始计时
             item.start_timer()
@@ -391,6 +398,7 @@ class DownloadCenterPage(QWidget):
 
             # 更新 Tab 标题数字
             self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
+            self.tabs.setTabText(1, f"已完成 ({len(self.finished_tasks)})")
 
     # --- UI 辅助方法 ---
 
@@ -470,6 +478,10 @@ class DownloadCenterPage(QWidget):
                 self.fi_list_layout.insertWidget(0, finished_item)
             
             print(f"成功加载 {len(self.finished_tasks)} 条下载记录")
+            
+            # 更新 Tab 标题数字
+            self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
+            self.tabs.setTabText(1, f"已完成 ({len(self.finished_tasks)})")
         except Exception as e:
             print(f"加载下载日志失败: {e}")
 
@@ -539,6 +551,8 @@ class DownloadCenterPage(QWidget):
                 w.deleteLater()
             self.finished_tasks.clear()
             self.save_download_logs()
+            # 更新 Tab 标题数字
+            self.tabs.setTabText(1, f"已完成 ({len(self.finished_tasks)})")
 
         master_group.finished.connect(on_all_finished)
 
