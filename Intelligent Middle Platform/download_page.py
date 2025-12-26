@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QTextEdit
 from PySide6.QtCore import Qt, QRectF, Slot, QPropertyAnimation, QEasingCurve, QPoint
-from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen
+from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen, QTextCursor
 
 
 class TaskItem(QWidget):
@@ -229,7 +229,7 @@ class TaskItem(QWidget):
         self.log_box.setPlainText(new_log)
         # 如果日志框可见，自动滚动到底部
         if self.is_expanded:
-            self.log_box.moveCursor(self.log_box.textCursor().End)
+            self.log_box.moveCursor(QTextCursor.End)
 
 
 class DownloadCenterPage(QWidget):
@@ -380,7 +380,8 @@ class DownloadCenterPage(QWidget):
             duration_str = f"{minutes:02d}:{seconds:02d}"
 
             # 2. 在“已完成”页签创建一个新条目（或者复用旧的）
-            status = "同步成功" if success else "同步失败"
+            completion_time = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+            status = f"同步成功 {completion_time}" if success else f"同步失败 {completion_time}"
             task_name = old_item.name_lbl.text()
             finished_item = TaskItem(
                 name=task_name,  # 获取之前的名字
@@ -481,9 +482,19 @@ class DownloadCenterPage(QWidget):
             
             # 重新创建已完成任务的UI
             for task_log in self.finished_tasks:
+                # 如果日志中包含时间戳，将其添加到状态文本中
+                status_text = task_log['status']
+                if 'timestamp' in task_log:
+                    # 将时间戳格式从'2025-12-25 11:30:23'转换为'2025/12/25 11:30:23'
+                    timestamp = task_log['timestamp'].replace('-', '/')
+                    if '同步成功' in status_text and timestamp not in status_text:
+                        status_text = f"同步成功 {timestamp}"
+                    elif '同步失败' in status_text and timestamp not in status_text:
+                        status_text = f"同步失败 {timestamp}"
+                
                 finished_item = TaskItem(
                     name=task_log['name'],
-                    status_text=task_log['status'],
+                    status_text=status_text,
                     progress_val=task_log['progress'],
                     duration=task_log['duration'],
                     log_text=task_log['log_text'],

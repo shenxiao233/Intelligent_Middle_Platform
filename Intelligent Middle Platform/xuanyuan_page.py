@@ -797,9 +797,11 @@ class ExportWorkspacePage(QWidget):
 
 
         # 4. 封装任务包
+        # 生成包含时间范围的任务名称
+        task_name = f"{card.lbl_name.text()}_{start_dt}_至_{end_dt}"
         task_data = {
             "key": key,
-            "name": card.lbl_name.text(),
+            "name": task_name,
             "url": card.task_url,
             "start_date": start_dt,
             "end_date": end_dt,
