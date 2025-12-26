@@ -221,6 +221,15 @@ class TaskItem(QWidget):
     def set_duration_text(self, text):
         """设置时间显示文本"""
         self.time_lbl.setText(text)
+        
+    def update_log(self, log_message):
+        """更新实时日志"""
+        current_log = self.log_box.toPlainText()
+        new_log = current_log + "\n" + log_message if current_log else log_message
+        self.log_box.setPlainText(new_log)
+        # 如果日志框可见，自动滚动到底部
+        if self.is_expanded:
+            self.log_box.moveCursor(self.log_box.textCursor().End)
 
 
 class DownloadCenterPage(QWidget):
@@ -272,8 +281,8 @@ class DownloadCenterPage(QWidget):
         """)
 
         # 页签初始化
-        self.dl_list_layout = self._create_list_tab("下载中 (0)")
-        self.fi_list_layout = self._create_finished_tab("已完成 (0)")
+        self.dl_list_layout = self._create_list_tab("下载中")
+        self.fi_list_layout = self._create_finished_tab("已完成")
 
         layout.addWidget(self.tabs)
 
@@ -288,6 +297,7 @@ class DownloadCenterPage(QWidget):
             self.dispatcher.task_added.connect(self.add_new_task_item)
             self.dispatcher.task_started.connect(self.mark_task_as_running)
             self.dispatcher.task_finished.connect(self.on_task_finished)
+            self.dispatcher.task_log_updated.connect(self.on_task_log_updated)
 
     # --- 核心逻辑槽函数 ---
 
@@ -345,6 +355,13 @@ class DownloadCenterPage(QWidget):
             # 开始计时
             item.start_timer()
             # 如果你有进度更新信号，也可以在这里继续扩展
+    
+    @Slot(str, str)
+    def on_task_log_updated(self, key, log_message):
+        """处理任务日志更新事件"""
+        if key in self.active_items:
+            item = self.active_items[key]
+            item.update_log(log_message)
 
     @Slot(str, bool, str, str)
     def on_task_finished(self, key, success, msg, download_path=None):

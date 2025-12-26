@@ -6,7 +6,7 @@ from DrissionPage import ChromiumPage, ChromiumOptions
 
 
 class ElemeDataWorker:
-    def __init__(self, download_dir='mydata'):
+    def __init__(self, download_dir='mydata', log_callback=None):
         # 初始化配置
         self.co = ChromiumOptions()
         # 如果需要无头模式可以取消下面注释
@@ -17,9 +17,19 @@ class ElemeDataWorker:
         self.target_path = os.path.join(os.getcwd(), download_dir)
         if not os.path.exists(self.target_path):
             os.makedirs(self.target_path)
+        
+        # 日志回调函数
+        self.log_callback = log_callback
 
     def _get_now(self):
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def _log(self, message):
+        """记录日志"""
+        if self.log_callback:
+            self.log_callback(message)
+        else:
+            print(message)  # 兼容旧版本，没有回调时使用print
 
     def inject_cookies(self, cookie_json):
         """注入 Cookie"""
@@ -30,18 +40,18 @@ class ElemeDataWorker:
             try:
                 self.page.set.cookies(cookie)
             except Exception as e:
-                print(f"注入 Cookie 失败: {e}")
+                self._log(f"注入 Cookie 失败: {e}")
 
     def run_task(self, target_url, start_date, end_date):
         """执行主任务"""
-        print(f"[{self._get_now()}] 启动任务: {target_url}")
+        self._log(f"[{self._get_now()}] 启动任务: {target_url}")
         self.page.get(target_url)
         time.sleep(1)
 
         # 1. 切入 Iframe
         iframe = self.page.get_frame('.ark-lowcode-frame')
         if not iframe:
-            print("❌ 未能找到业务框架，任务终止")
+            self._log("❌ 未能找到业务框架，任务终止")
             return False
 
         # 2. 设置日期
@@ -71,18 +81,18 @@ class ElemeDataWorker:
                     actual_end = end_input.attr('value')
 
                     if actual_start == start_date and actual_end == end_date:
-                        print(f"[{self._get_now()}] ✅ 日期校验成功: {start_date} ~ {end_date}")
+                        self._log(f"[{self._get_now()}] ✅ 日期校验成功: {start_date} ~ {end_date}")
                         break  # 校验成功，跳出循环
                     else:
-                        print(
+                        self._log(
                             f"[{self._get_now()}] ⚠️ 日期校验失败(实际为: {actual_start}), 正在进行第 {attempt + 1} 次重试...")
 
             except Exception as e:
-                print(f"❌ 设置日期尝试中出错 (第{attempt + 1}次): {e}")
+                self._log(f"❌ 设置日期尝试中出错 (第{attempt + 1}次): {e}")
 
             # 如果是最后一次尝试仍然失败
             if attempt == max_retries - 1:
-                print(f"❌ 经过 {max_retries} 次尝试，无法正确设置日期。")
+                self._log(f"❌ 经过 {max_retries} 次尝试，无法正确设置日期。")
                 return False
 
         # 3. 点击查询并等待
@@ -95,18 +105,18 @@ class ElemeDataWorker:
             loading_locator = 'text:正在努力为您查询'
             if iframe.ele(loading_locator, timeout=3):
                 iframe.wait.ele_deleted(loading_locator, timeout=60)
-            print(f"[{self._get_now()}] ✨ 数据加载完成")
+            self._log(f"[{self._get_now()}] ✨ 数据加载完成")
 
         # 4. 执行下载
         return self._handle_download(start_date, end_date)
 
     def _handle_download(self, start_date, end_date):
         """内部下载处理逻辑"""
-        print(f"[{self._get_now()}] 🔍 准备下载...")
+        self._log(f"[{self._get_now()}] 🔍 准备下载...")
         btn = self.page.ele('.ark-download-btn', timeout=15) or self.page.ele('text:下 载', timeout=5)
 
         if not btn:
-            print("❌ 未找到下载按钮")
+            self._log("❌ 未找到下载按钮")
             return False
 
         check_minute = datetime.now().strftime("%Y%m%d%H%M")
@@ -144,7 +154,7 @@ class ElemeDataWorker:
             os.remove(new_path)
 
         os.rename(old_path, new_path)
-        print(f"[{self._get_now()}] ✅ 文件保存成功: {new_name}")
+        self._log(f"[{self._get_now()}] ✅ 文件保存成功: {new_name}")
         return new_path
 
     def quit(self):

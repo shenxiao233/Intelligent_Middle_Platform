@@ -14,6 +14,7 @@ from SettingsPage import  SettingsPage
 # 新增：自动化后台线程
 class AutomationThread(QThread):
     finished_signal = Signal(str, bool, str, str)  # 参数：任务Key, 是否成功, 提示消息, 下载路径
+    log_signal = Signal(str, str)  # 参数：任务Key, 日志内容
 
     def __init__(self, task_key, url, start_date, end_date, cookie_json):
         super().__init__()
@@ -23,12 +24,16 @@ class AutomationThread(QThread):
         self.end_date = end_date
         self.cookie_json = cookie_json
 
+    def _log_callback(self, log_message):
+        """日志回调函数，将日志通过信号发送到UI"""
+        self.log_signal.emit(self.task_key, log_message)
+
     def run(self):
         try:
             # 这里调用我们之前写的 Worker 类
             from xuanyuan_worker import ElemeDataWorker  # 确保你能引用到之前的类
 
-            worker = ElemeDataWorker()
+            worker = ElemeDataWorker(log_callback=self._log_callback)
             worker.inject_cookies(self.cookie_json)
 
             # 执行任务
@@ -55,6 +60,7 @@ class DownloadDispatcher(QObject):
     task_added = Signal(dict)  # 任务进入队列了
     task_started = Signal(str)  # 某个任务正式开始下载了
     task_finished = Signal(str, bool, str, str)  # 某个任务跑完了 (key, success, msg, download_path)
+    task_log_updated = Signal(str, str)  # 某个任务的日志更新了 (key, log_message)
 
     def __init__(self):
         super().__init__()
@@ -90,7 +96,13 @@ class DownloadDispatcher(QObject):
         )
         # 任务跑完后，通知 dispatcher
         self.worker.finished_signal.connect(self._on_finished)
+        # 连接日志信号
+        self.worker.log_signal.connect(self._on_log_updated)
         self.worker.start()
+    
+    def _on_log_updated(self, task_key, log_message):
+        """处理任务日志更新"""
+        self.task_log_updated.emit(task_key, log_message)
 
     def _on_finished(self, key, success, msg, download_path):
         self.is_running = False
