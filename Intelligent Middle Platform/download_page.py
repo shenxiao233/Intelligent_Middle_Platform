@@ -23,6 +23,11 @@ class TaskItem(QWidget):
         self.download_path = download_path
         self.setFixedHeight(self.header_height)
 
+        # 计时相关属性
+        self.start_time = None
+        self.elapsed_time = 0
+        self.timer = None
+        
         # 必须设置，否则自绘可能不刷新
         self.setAttribute(Qt.WA_StyledBackground, True)
 
@@ -31,7 +36,7 @@ class TaskItem(QWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        # --- 顶部信息层 (确保背景透明，否则会遮挡自绘的圆角) ---
+        # --- 顶部信息层 (确保背景透明，否则会遮挡自绘的圆角) --- 
         self.header = QWidget()
         self.header.setFixedHeight(self.header_height)
         self.header.setAttribute(Qt.WA_TranslucentBackground)
@@ -41,13 +46,13 @@ class TaskItem(QWidget):
 
         # 文字信息
         v_text = QVBoxLayout()
-        name_lbl = QLabel(name)
-        name_lbl.setStyleSheet("font-weight: bold; color: #111827; font-size: 14px; border:none;")
-        time_lbl = QLabel(f"运行时间：{duration}")
-        time_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; border:none;")
+        self.name_lbl = QLabel(name)
+        self.name_lbl.setStyleSheet("font-weight: bold; color: #111827; font-size: 14px; border:none;")
+        self.time_lbl = QLabel(f"运行时间：{duration}")
+        self.time_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; border:none;")
         v_text.addStretch();
-        v_text.addWidget(name_lbl);
-        v_text.addWidget(time_lbl);
+        v_text.addWidget(self.name_lbl);
+        v_text.addWidget(self.time_lbl);
         v_text.addStretch()
 
         # 进度条
@@ -190,6 +195,32 @@ class TaskItem(QWidget):
                     os.system(f'xdg-open "{self.download_path}"')
             except Exception as e:
                 print(f"打开文件夹失败: {e}")
+    
+    def start_timer(self):
+        """开始计时"""
+        if not self.is_done:
+            self.start_time = time.time()
+            from PySide6.QtCore import QTimer
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self.update_duration)
+            self.timer.start(1000)  # 每秒更新一次
+    
+    def stop_timer(self):
+        """停止计时"""
+        if self.timer:
+            self.timer.stop()
+            self.timer = None
+    
+    def update_duration(self):
+        """更新运行时间显示"""
+        if self.start_time:
+            self.elapsed_time = time.time() - self.start_time
+            minutes, seconds = divmod(int(self.elapsed_time), 60)
+            self.time_lbl.setText(f"运行时间：{minutes:02d}:{seconds:02d}")
+    
+    def set_duration_text(self, text):
+        """设置时间显示文本"""
+        self.time_lbl.setText(text)
 
 
 class DownloadCenterPage(QWidget):
@@ -213,6 +244,7 @@ class DownloadCenterPage(QWidget):
         self.load_download_logs()
 
     def _init_ui(self):
+        self._clear_anims = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(0)
@@ -265,18 +297,33 @@ class DownloadCenterPage(QWidget):
         key = data.get('key')
         name = data.get('name', '未知任务')
 
+        # 检查是否是第一个任务
+        is_first_task = len(self.active_items) == 0
+        
+        # 根据是否是第一个任务设置不同的初始状态
+        if is_first_task:
+            status_text = "下载中..."
+            log_text = "[RUNNING] 任务已开始执行..."
+        else:
+            status_text = "排队等待中..."
+            log_text = "[QUEUE] 任务已加入单线程队列，等待调度..."
+
         # 创建一个初始状态的任务条
         item = TaskItem(
             name=name,
-            status_text="排队等待中...",
+            status_text=status_text,
             progress_val=0,
             duration="等待中",
-            log_text="[QUEUE] 任务已加入单线程队列，等待调度..."
+            log_text=log_text
         )
 
         # 存储并添加到布局
         self.active_items[key] = item
         self.dl_list_layout.insertWidget(0, item)  # 永远放在最上面
+
+        # 如果是第一个任务，立即开始计时
+        if is_first_task:
+            item.start_timer()
 
         # 更新 Tab 标题数字
         self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
@@ -286,8 +333,10 @@ class DownloadCenterPage(QWidget):
         """[开始下载]：当任务正式被调度运行"""
         if key in self.active_items:
             item = self.active_items[key]
-            # 这里可以更新 UI 表现
+            # 更新 UI 表现
             item.log_box.setPlainText("[INFO] 浏览器环境已就绪，正在抓取数据...")
+            # 开始计时
+            item.start_timer()
             # 如果你有进度更新信号，也可以在这里继续扩展
 
     @Slot(str, bool, str, str)
@@ -297,19 +346,30 @@ class DownloadCenterPage(QWidget):
             # 1. 从“下载中”移除
             old_item = self.active_items.pop(key)
             self.dl_list_layout.removeWidget(old_item)
+            
+            # 停止计时
+            old_item.stop_timer()
+            
+            # 获取运行时间
+            elapsed_time = old_item.elapsed_time
+            minutes, seconds = divmod(int(elapsed_time), 60)
+            duration_str = f"{minutes:02d}:{seconds:02d}"
 
             # 2. 在“已完成”页签创建一个新条目（或者复用旧的）
             status = "同步成功" if success else "同步失败"
-            task_name = old_item.findChild(QLabel).text()
+            task_name = old_item.name_lbl.text()
             finished_item = TaskItem(
                 name=task_name,  # 获取之前的名字
                 status_text=status,
                 progress_val=100 if success else 0,
-                duration="已完成",
+                duration=duration_str,
                 log_text=msg,
                 is_done=success,
                 download_path=download_path
             )
+            
+            # 设置已完成任务的时间显示
+            finished_item.set_duration_text(f"任务用时：{duration_str}")
             self.fi_list_layout.insertWidget(0, finished_item)
 
             # 3. 保存任务到日志
@@ -317,7 +377,7 @@ class DownloadCenterPage(QWidget):
                 'name': task_name,
                 'status': status,
                 'progress': 100 if success else 0,
-                'duration': '已完成',
+                'duration': duration_str,
                 'log_text': msg,
                 'is_done': success,
                 'download_path': download_path,
@@ -405,6 +465,8 @@ class DownloadCenterPage(QWidget):
                     is_done=task_log['is_done'],
                     download_path=task_log['download_path']
                 )
+                # 设置正确的时间显示格式
+                finished_item.set_duration_text(f"任务用时：{task_log['duration']}")
                 self.fi_list_layout.insertWidget(0, finished_item)
             
             print(f"成功加载 {len(self.finished_tasks)} 条下载记录")
@@ -420,56 +482,66 @@ class DownloadCenterPage(QWidget):
         self.animate_clear_records()
 
     def animate_clear_records(self):
-        """清空记录的动画效果"""
-        # 获取所有已完成任务的UI项
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        from PySide6.QtCore import (
+            QPropertyAnimation,
+            QSequentialAnimationGroup,
+            QParallelAnimationGroup,
+            QPauseAnimation,
+            QEasingCurve,
+            QPoint
+        )
+
         items = []
-        while self.fi_list_layout.count() > 0:
-            item = self.fi_list_layout.itemAt(0)
-            widget = item.widget()
-            if widget:
-                items.append(widget)
-            self.fi_list_layout.removeItem(item)
-        
+        for i in range(self.fi_list_layout.count()):
+            w = self.fi_list_layout.itemAt(i).widget()
+            if w:
+                items.append(w)
+
         if not items:
             return
-        
-        # 批量动画
-        def on_animation_finished():
-            # 清理所有UI项
-            for item in items:
-                item.deleteLater()
-            # 清空数据
-            self.finished_tasks = []
-            self.save_download_logs()
-        
-        # 创建动画
-        animations = []
+
+        self._clear_anims = []  # 强引用，防止被 GC
+
+        master_group = QSequentialAnimationGroup(self)
+
         for i, item in enumerate(items):
-            # 透明度动画
-            opacity_anim = QPropertyAnimation(item, b"windowOpacity")
-            opacity_anim.setDuration(300)
-            opacity_anim.setStartValue(1.0)
-            opacity_anim.setEndValue(0.0)
-            opacity_anim.setEasingCurve(QEasingCurve.InQuad)
-            opacity_anim.setDelay(i * 50)  # 错开动画
-            
-            # 位置动画
-            pos_anim = QPropertyAnimation(item, b"pos")
-            pos_anim.setDuration(300)
-            pos_anim.setStartValue(item.pos())
-            pos_anim.setEndValue(item.pos() + QPoint(50, 0))  # 向右移动
-            pos_anim.setEasingCurve(QEasingCurve.InQuad)
-            pos_anim.setDelay(i * 50)
-            
-            animations.append(opacity_anim)
-            animations.append(pos_anim)
-        
-        # 最后一个动画完成后清理数据
-        if animations:
-            animations[-1].finished.connect(on_animation_finished)
-        else:
-            on_animation_finished()
-        
-        # 启动所有动画
-        for anim in animations:
-            anim.start()
+            # ---- 延迟 ----
+            master_group.addAnimation(QPauseAnimation(i * 40))
+
+            # ---- 透明度 ----
+            effect = QGraphicsOpacityEffect(item)
+            item.setGraphicsEffect(effect)
+
+            fade = QPropertyAnimation(effect, b"opacity", self)
+            fade.setDuration(300)
+            fade.setStartValue(1.0)
+            fade.setEndValue(0.0)
+            fade.setEasingCurve(QEasingCurve.InQuad)
+
+            # ---- 位移 ----
+            move = QPropertyAnimation(item, b"pos", self)
+            move.setDuration(300)
+            move.setStartValue(item.pos())
+            move.setEndValue(item.pos() + QPoint(60, 0))
+            move.setEasingCurve(QEasingCurve.InQuad)
+
+            # 并行动画
+            parallel = QParallelAnimationGroup(self)
+            parallel.addAnimation(fade)
+            parallel.addAnimation(move)
+
+            master_group.addAnimation(parallel)
+
+        def on_all_finished():
+            for w in items:
+                self.fi_list_layout.removeWidget(w)
+                w.deleteLater()
+            self.finished_tasks.clear()
+            self.save_download_logs()
+
+        master_group.finished.connect(on_all_finished)
+
+        self._clear_anims.append(master_group)
+        master_group.start()
+
