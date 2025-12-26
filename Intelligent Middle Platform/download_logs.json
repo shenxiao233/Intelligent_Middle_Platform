@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "name": "战报_FY26_2025-12-25_至_2025-12-25",
+    "status": "同步成功 2025/12/26 16:09:47",
+    "progress": 100,
+    "duration": "00:32",
+    "log_text": "同步完成",
+    "is_done": true,
+    "download_path": "C:\\Users\\yang\\PyCharmMiscProject\\Intelligent Middle Platform\\mydata",
+    "timestamp": "2025-12-26 16:09:47"
+  },
+  {
+    "name": "战报_FY26_2025-12-25_至_2025-12-25",
+    "status": "同步成功 2025/12/26 16:17:19",
+    "progress": 100,
+    "duration": "00:33",
+    "log_text": "同步完成",
+    "is_done": true,
+    "download_path": "C:\\Users\\yang\\PyCharmMiscProject\\Intelligent Middle Platform\\mydata",
+    "timestamp": "2025-12-26 16:17:19"
+  }
+]

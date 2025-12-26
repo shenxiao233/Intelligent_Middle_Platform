@@ -7,9 +7,11 @@ from PySide6.QtWidgets import (
     QApplication, QFrame, QScrollArea,
     QTabWidget
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QUrl
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QTextEdit
 from PySide6.QtCore import Qt, QRectF, Slot, QPropertyAnimation, QEasingCurve, QPoint
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen, QTextCursor
 
 
@@ -253,6 +255,21 @@ class DownloadCenterPage(QWidget):
         # 日志文件路径
         self.log_file_path = os.path.join(os.getcwd(), 'download_logs.json')
 
+        # 初始化提示音
+        self.notification_sound = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.notification_sound.setAudioOutput(self.audio_output)
+        # 设置音量 (0.0 到 1.0)
+        self.audio_output.setVolume(0.8)
+        # 使用用户提供的提示音.mp3文件作为下载完成音效
+        # 使用相对路径，确保打包后能正确找到音频文件
+        sound_path = os.path.abspath("提示音.mp3")
+        print(f"提示音路径: {sound_path}")
+        if os.path.exists(sound_path):
+            self.notification_sound.setSource(QUrl.fromLocalFile(sound_path))
+        else:
+            print("❌ 错误：找不到提示音.mp3文件！")
+        
         self._init_ui()
         # 加载持久化的下载日志
         self.load_download_logs()
@@ -448,6 +465,19 @@ class DownloadCenterPage(QWidget):
             # 更新 Tab 标题数字
             self.tabs.setTabText(0, f"下载中 ({len(self.active_items)})")
             self.tabs.setTabText(1, f"已完成 ({len(self.finished_tasks)})")
+            
+            # 播放任务完成提示音
+            try:
+                # 重新设置源（确保每次播放都能正确加载）
+                sound_path = os.path.abspath("提示音.mp3")
+                if os.path.exists(sound_path):
+                    self.notification_sound.setSource(QUrl.fromLocalFile(sound_path))
+                    print("尝试播放下载完成提示音...")
+                    self.notification_sound.play()
+                else:
+                    print("❌ 错误：找不到提示音.mp3文件！")
+            except Exception as e:
+                print(f"播放提示音失败: {e}")
 
     # --- UI 辅助方法 ---
 
