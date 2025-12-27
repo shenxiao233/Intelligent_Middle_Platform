@@ -129,7 +129,7 @@ class BatchExporterWorker(QObject):
 
     def _execute_export_job(self, job_name: str, url: str, payload: Dict[str, Any],
                             filename_prefix: str, is_direct_download: bool = False,
-                            task_key: str = ""):
+                            task_key: str = "", file_ext: str = "xlsx"):
         """通用核心导出逻辑"""
         if not self.is_running: return
         self._last_file_name = ""
@@ -145,7 +145,7 @@ class BatchExporterWorker(QObject):
                 # 处理直接返回流的情况
                 resp = requests.post(url, headers=HEADERS, json=payload, stream=True, timeout=30, cookies=self.cookies)
                 resp.raise_for_status()
-                filename = f"{filename_prefix}_{date_suffix}.xlsx"
+                filename = f"{filename_prefix}_{date_suffix}.{file_ext}"
                 if self._write_to_disk(resp, filename):
                     self._last_file_name = filename
                 return
@@ -159,7 +159,7 @@ class BatchExporterWorker(QObject):
             file_url = res_data.get('fileUrl') or res_data.get('url')
 
             if file_url:
-                filename = f"{filename_prefix}_{date_suffix}.xlsx"
+                filename = f"{filename_prefix}_{date_suffix}.{file_ext}"
                 if self._download_file(file_url, filename):
                     self._last_file_name = filename
             else:
@@ -206,7 +206,7 @@ class BatchExporterWorker(QObject):
             "params": {"request": {"violationStartTime": start_ts, "violationEndTime": end_ts, "appealStatus": []}}}
         self._execute_export_job("风神违规",
                                  "https://httpizza.ele.me/xtop/xtop.lpd.quality.control.violation.violationOrderAeolusCenterApi.download/1.0",
-                                 payload, "风神服务奖惩数据", False, "violation")
+                                 payload, "风神服务奖惩数据", False, "violation", file_ext="csv")
 
     def _task_schedule(self):
         """2. 骑手排班数据"""

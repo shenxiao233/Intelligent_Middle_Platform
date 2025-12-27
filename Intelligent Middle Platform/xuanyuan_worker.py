@@ -125,7 +125,7 @@ class ElemeDataWorker:
 
         # 轮询文件
         found_file = None
-        for _ in range(60):  # 等待 180 秒
+        for _ in range(300):  # 等待 300 秒
             files = os.listdir(self.target_path)
             for f in files:
                 if check_minute in f and not f.endswith('.crdownload'):
