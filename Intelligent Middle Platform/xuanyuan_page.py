@@ -16,7 +16,7 @@ class AutomationThread(QThread):
     finished_signal = Signal(str, bool, str, str)  # 参数：任务Key, 是否成功, 提示消息, 下载路径
     log_signal = Signal(str, str)  # 参数：任务Key, 日志内容
 
-    def __init__(self, task_key, url, start_date, end_date, cookie_json, task_type=None, config_info=None):
+    def __init__(self, task_key, url, start_date, end_date, cookie_json, task_type=None, config_info=None, task_name=None):
         super().__init__()
         self.task_key = task_key
         self.url = url
@@ -25,6 +25,7 @@ class AutomationThread(QThread):
         self.cookie_json = cookie_json
         self.task_type = task_type
         self.config_info = config_info
+        self.task_name = task_name
         self._is_running = True
 
     def _log_callback(self, log_message):
@@ -47,7 +48,7 @@ class AutomationThread(QThread):
 
             # 执行任务
             result_path = worker.run_task(self.url, self.start_date, self.end_date, 
-                                        self.task_type, self.config_info)
+                                        self.task_type, self.config_info, self.task_name)
 
             worker.quit()
 
@@ -116,7 +117,8 @@ class DownloadDispatcher(QObject):
         self.worker = AutomationThread(
             task['key'], task['url'], task['start_date'],
             task['end_date'], task['cookie_json'],
-            task.get('task_type'), task.get('config_info')
+            task.get('task_type'), task.get('config_info'),
+            task.get('name')
         )
         # 任务跑完后，通知 dispatcher
         self.worker.finished_signal.connect(self._on_finished)

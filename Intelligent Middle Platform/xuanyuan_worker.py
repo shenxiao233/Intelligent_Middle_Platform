@@ -106,11 +106,13 @@ class ElemeDataWorker:
             except Exception as e:
                 self._log(f"注入 Cookie 失败: {e}")
 
-    def run_task(self, target_url, start_date, end_date, task_type=None, config_info=None):
+    def run_task(self, target_url, start_date, end_date, task_type=None, config_info=None, task_name=None):
         """执行主任务"""
         self._log(f"[{self._get_now()}] 启动任务: {target_url}")
         self._log(f"[{self._get_now()}] 任务类型: {task_type}")
         self._log(f"[{self._get_now()}] 配置信息: {config_info}")
+        if task_name:
+            self._log(f"[{self._get_now()}] 任务名称: {task_name}")
 
         # 建立任务类型到处理方法的映射
         task_handlers = {
@@ -125,7 +127,7 @@ class ElemeDataWorker:
         handler = task_handlers.get(task_type)
         if handler:
             self._log(f"[{self._get_now()}] 🎯 使用任务类型: {task_type}")
-            return handler(target_url, start_date, end_date, config_info)
+            return handler(target_url, start_date, end_date, config_info, task_name)
         else:
             self._log(f"[{self._get_now()}] ❌ 未知的任务类型: {task_type}")
             self._log(f"[{self._get_now()}] 📋 可用的任务类型: {list(task_handlers.keys())}")
@@ -245,9 +247,12 @@ class ElemeDataWorker:
         self._log(f"[{self._get_now()}] ✅ 文件保存成功: {new_name}")
         return new_path
 
-    def run_custom_dashboard_task(self, target_url, start_date, end_date, config_info=None):
+    def run_custom_dashboard_task(self, target_url, start_date, end_date, config_info=None, task_name=None):
         """执行自定义看板任务
         
+        参数:
+            task_name: 任务名称，用于生成文件名
+            
         返回值:
             str: 合并文件或第一个下载文件的路径，如果失败则返回目标目录路径
         """
@@ -327,7 +332,7 @@ class ElemeDataWorker:
                 
                 if POLARS_AVAILABLE and matched_files and isinstance(matched_files, list) and len(matched_files) > 0:
                     self._log(f"[{self._get_now()}] 📊 开始合并文件...")
-                    merged_file_path = self._merge_downloaded_files(self.target_path, start_date, end_date)
+                    merged_file_path = self._merge_downloaded_files(self.target_path, start_date, end_date, task_name)
                     if merged_file_path:
                         self._log(f"[{self._get_now()}] ✅ 文件合并完成，合并文件路径: {merged_file_path}")
                     else:
@@ -625,8 +630,18 @@ class ElemeDataWorker:
         final_matched = self._verify_download_files(time_windows)
         return final_matched
 
-    def _merge_downloaded_files(self, download_path, date_range_start, date_range_end):
-        """使用Polars合并新下载的文件"""
+    def _merge_downloaded_files(self, download_path, date_range_start, date_range_end, task_name=None):
+        """使用Polars合并新下载的文件
+        
+        参数:
+            download_path: 下载目录路径
+            date_range_start: 开始日期
+            date_range_end: 结束日期
+            task_name: 任务名称，用于生成文件名
+            
+        返回值:
+            str: 合并文件的路径，合并失败返回None
+        """
         if not POLARS_AVAILABLE:
             self._log(f"[{self._get_now()}] ❌ Polars未安装，无法进行文件合并")
             return
@@ -641,7 +656,7 @@ class ElemeDataWorker:
             self._log(f"[{self._get_now()}] ℹ️ 下载目录中没有找到xlsx文件")
             return
         
-        # 按时间戳排序文件（从最早的开始）
+        # 检查是否有多个时间段的文件
         file_with_timestamps = []
         for file in files:
             timestamp = extract_timestamp_from_filename(file)
@@ -654,6 +669,12 @@ class ElemeDataWorker:
         
         # 按时间戳排序
         file_with_timestamps.sort(key=lambda x: x[0])
+        
+        # 只有多个文件才需要合并
+        if len(file_with_timestamps) < 2:
+            self._log(f"[{self._get_now()}] ℹ️ 只有 {len(file_with_timestamps)} 个文件，不需要合并")
+            # 返回第一个文件的路径
+            return os.path.join(download_path, file_with_timestamps[0][1])
         
         self._log(f"[{self._get_now()}] 📁 找到 {len(file_with_timestamps)} 个文件，按时间戳排序:")
         for timestamp, file in file_with_timestamps:
@@ -686,24 +707,45 @@ class ElemeDataWorker:
             self._log(f"[{self._get_now()}] ❌ 文件合并失败: {e}")
             return
         
-        # 生成输出文件名（添加日期范围后缀）
+        # 生成输出文件名（使用任务名称和日期范围）
         date_suffix = f"{date_range_start.replace('-', '')}至{date_range_end.replace('-', '')}"
-        output_filename = f"D端-考核_表格_合并_{date_suffix}.xlsx"
+        if task_name:
+            # 移除任务名称中的日期部分（如果存在）
+            name_parts = task_name.split('_')
+            if len(name_parts) > 3 and '至' in name_parts[-1]:
+                base_name = '_'.join(name_parts[:-2])
+            else:
+                base_name = task_name
+            
+            output_filename = f"{base_name}_合并_{date_suffix}.xlsx"
+        else:
+            output_filename = f"D端-考核_表格_合并_{date_suffix}.xlsx"
+        
         output_path = os.path.join(download_path, output_filename)
         
         try:
             self._log(f"[{self._get_now()}] 💾 保存合并文件: {output_filename}")
+            self._log(f"[{self._get_now()}] 📍 输出路径: {output_path}")
             merged_df.write_excel(output_path)
             self._log(f"[{self._get_now()}] ✅ 文件保存成功: {output_path}")
             self._log(f"[{self._get_now()}] 📊 合并结果: {len(merged_df)} 行 × {len(merged_df.columns)} 列")
+            
+            # 删除原始文件
+            self._log(f"[{self._get_now()}] 🗑️ 开始删除原始文件...")
+            for timestamp, file in file_with_timestamps:
+                file_path = os.path.join(download_path, file)
+                if os.path.exists(file_path) and file_path != output_path:
+                    try:
+                        os.remove(file_path)
+                        self._log(f"[{self._get_now()}] ✅ 删除成功: {file}")
+                    except Exception as e:
+                        self._log(f"[{self._get_now()}] ❌ 删除失败 {file}: {e}")
+            
+            self._log(f"[{self._get_now()}] 🎉 文件合并完成！")
             return output_path  # 返回合并文件的路径
         except Exception as e:
             self._log(f"[{self._get_now()}] ❌ 保存文件失败: {e}")
             return None
-        
-        self._log(f"[{self._get_now()}] 🎉 文件合并完成！")
-        self._log(f"[{self._get_now()}] � 输出文件: {output_filename}")
-        self._log(f"[{self._get_now()}] � 文件路径: {output_path}")
 
     def _handle_batch_download(self, export_start_times, start_date, end_date):
         """处理批量下载逻辑"""
