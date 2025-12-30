@@ -1,8 +1,17 @@
 import json
 import time
 import os
+import re
 from DrissionPage import ChromiumPage, ChromiumOptions
 from datetime import datetime, timedelta
+
+# 尝试导入polars，如果不存在则提示安装
+try:
+    import polars as pl
+    POLARS_AVAILABLE = True
+except ImportError:
+    POLARS_AVAILABLE = False
+    print(f"[{get_now()}] ⚠️ Polars未安装，无法进行文件合并功能")
 
 def get_now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -63,6 +72,183 @@ if not os.path.exists(target_path):
 
 target_dates = {'start': '2025-12-15', 'end': '2025-12-25'}
 
+def verify_download_files(download_path, time_windows):
+    """验证文件夹中的文件是否包含预期的时间戳（简化输出）"""
+    if not os.path.exists(download_path):
+        print(f"[{get_now()}] ❌ 下载目录不存在: {download_path}")
+        return []
+
+    # 获取所有文件
+    files = os.listdir(download_path)
+    if not files:
+        print(f"[{get_now()}] ℹ️ 下载目录为空")
+        return []
+
+    # 解析文件名中的时间戳，只关注匹配的文件
+    matched_files = []
+
+    for file in files:
+        # 尝试从文件名中提取时间戳
+        timestamp_match = re.search(r'(\d{14,17})', file)
+        if timestamp_match:
+            timestamp_str = timestamp_match.group(1)
+            try:
+                # 解析时间戳
+                if len(timestamp_str) >= 14:
+                    file_time = datetime.strptime(timestamp_str[:14], '%Y%m%d%H%M%S')
+                    if len(timestamp_str) > 14:
+                        microsecond_part = timestamp_str[14:]
+                        if len(microsecond_part) <= 6:
+                            microsecond = int(microsecond_part.ljust(6, '0'))
+                            file_time = file_time.replace(microsecond=microsecond)
+
+                    # 检查是否在预期的时间窗口内
+                    for window_start, window_end in time_windows:
+                        if window_start <= file_time <= window_end:
+                            matched_files.append(file)
+                            break
+            except ValueError:
+                # 忽略无法解析的文件
+                continue
+
+    # 汇总结果（简化输出）
+    print(f"[{get_now()}] 📊 验证结果: 找到 {len(matched_files)} 个匹配文件")
+
+    if matched_files:
+        print(f"[{get_now()}] ✅ 成功下载的文件:")
+        for file in matched_files:
+            print(f"  ✓ {file}")
+
+    return matched_files
+
+def verify_download_files_with_retry(download_path, time_windows, expected_rows, max_retries=10, retry_interval=3):
+    """轮询验证文件下载情况，直到找到所有预期文件或达到最大重试次数"""
+    print(f"[{get_now()}] 🎯 预期下载文件数: {len(expected_rows)}")
+    print(f"[{get_now()}] 🔄 开始轮询验证，间隔 {retry_interval} 秒，最多重试 {max_retries} 次")
+    
+    if not expected_rows:
+        print(f"[{get_now()}] ℹ️ 没有预期下载的文件")
+        verify_download_files(download_path, time_windows)
+        return
+    
+    for attempt in range(1, max_retries + 1):
+        print(f"\n[{get_now()}] 🔍 第 {attempt} 次验证检查...")
+        
+        # 获取当前匹配的文件
+        matched_files = verify_download_files(download_path, time_windows)
+        matched_count = len(matched_files)
+        expected_count = len(expected_rows)
+        
+        print(f"[{get_now()}] 📊 验证结果: {matched_count}/{expected_count} 个文件已找到")
+        
+        if matched_count >= expected_count:
+            print(f"[{get_now()}] ✅ 所有预期文件都已找到！")
+            return matched_files
+        elif attempt < max_retries:
+            remaining = expected_count - matched_count
+            print(f"[{get_now()}] ⏳ 还有 {remaining} 个文件未找到，{retry_interval} 秒后重试...")
+            time.sleep(retry_interval)
+        else:
+            print(f"[{get_now()}] ❌ 已达到最大重试次数 ({max_retries})，仍有 {remaining} 个文件未找到")
+            break
+    
+    print(f"[{get_now()}] 📋 最终验证结果汇总:")
+    final_matched = verify_download_files(download_path, time_windows)
+    return final_matched
+
+def extract_timestamp_from_filename(filename):
+    """从文件名中提取时间戳"""
+    timestamp_match = re.search(r'(\d{14,17})', filename)
+    if timestamp_match:
+        timestamp_str = timestamp_match.group(1)
+        try:
+            if len(timestamp_str) >= 14:
+                file_time = datetime.strptime(timestamp_str[:14], '%Y%m%d%H%M%S')
+                if len(timestamp_str) > 14:
+                    microsecond_part = timestamp_str[14:]
+                    if len(microsecond_part) <= 6:
+                        microsecond = int(microsecond_part.ljust(6, '0'))
+                        file_time = file_time.replace(microsecond=microsecond)
+                return file_time
+        except ValueError:
+            pass
+    return None
+
+def merge_downloaded_files(download_path, date_range_start, date_range_end):
+    """使用Polars合并新下载的文件"""
+    if not os.path.exists(download_path):
+        print(f"[{get_now()}] ❌ 下载目录不存在: {download_path}")
+        return
+    
+    # 获取所有xlsx文件
+    files = [f for f in os.listdir(download_path) if f.endswith('.xlsx')]
+    if not files:
+        print(f"[{get_now()}] ℹ️ 下载目录中没有找到xlsx文件")
+        return
+    
+    # 按时间戳排序文件（从最早的开始）
+    file_with_timestamps = []
+    for file in files:
+        timestamp = extract_timestamp_from_filename(file)
+        if timestamp:
+            file_with_timestamps.append((timestamp, file))
+    
+    if not file_with_timestamps:
+        print(f"[{get_now()}] ⚠️ 没有找到包含有效时间戳的文件")
+        return
+    
+    # 按时间戳排序
+    file_with_timestamps.sort(key=lambda x: x[0])
+    
+    print(f"[{get_now()}] 📁 找到 {len(file_with_timestamps)} 个文件，按时间戳排序:")
+    for timestamp, file in file_with_timestamps:
+        print(f"  📄 {file} ({timestamp.strftime('%Y-%m-%d %H:%M:%S')})")
+    
+    # 使用Polars读取并合并文件
+    dataframes = []
+    
+    for timestamp, file in file_with_timestamps:
+        file_path = os.path.join(download_path, file)
+        try:
+            print(f"[{get_now()}] 📖 读取文件: {file}")
+            df = pl.read_excel(file_path)
+            dataframes.append(df)
+            print(f"[{get_now()}] ✅ 成功读取 {file}，共 {len(df)} 行数据")
+        except Exception as e:
+            print(f"[{get_now()}] ❌ 读取文件失败 {file}: {e}")
+            continue
+    
+    if not dataframes:
+        print(f"[{get_now()}] ❌ 没有成功读取任何文件")
+        return
+    
+    # 合并所有数据框
+    print(f"[{get_now()}] 🔄 开始合并 {len(dataframes)} 个文件...")
+    try:
+        merged_df = pl.concat(dataframes, how="vertical")
+        print(f"[{get_now()}] ✅ 文件合并完成，总计 {len(merged_df)} 行数据")
+    except Exception as e:
+        print(f"[{get_now()}] ❌ 文件合并失败: {e}")
+        return
+    
+    # 生成输出文件名（添加日期范围后缀）
+    date_suffix = f"{date_range_start.replace('-', '')}至{date_range_end.replace('-', '')}"
+    output_filename = f"D端-考核_表格_合并_{date_suffix}.xlsx"
+    output_path = os.path.join(download_path, output_filename)
+    
+    try:
+        print(f"[{get_now()}] 💾 保存合并文件: {output_filename}")
+        merged_df.write_excel(output_path)
+        print(f"[{get_now()}] ✅ 文件保存成功: {output_path}")
+        print(f"[{get_now()}] 📊 合并结果: {len(merged_df)} 行 × {len(merged_df.columns)} 列")
+    except Exception as e:
+        print(f"[{get_now()}] ❌ 保存文件失败: {e}")
+        return
+    
+    print(f"[{get_now()}] 🎉 文件合并完成！")
+    print(f"[{get_now()}] 📁 输出文件: {output_filename}")
+    print(f"[{get_now()}] 📍 文件路径: {output_path}")
+
 def process_date_batch(page, iframe, batch, batch_number, total_batches):
     """处理单个日期批次的数据下载"""
     print(f"[{get_now()}] 📅 批次 {batch_number}/{total_batches}: {batch['start']} ~ {batch['end']}")
@@ -70,57 +256,162 @@ def process_date_batch(page, iframe, batch, batch_number, total_batches):
     # 记录导出开始时间
     export_start_time = datetime.now()
     
-    # 清空筛选条件
-    iframe.run_js("document.querySelectorAll('.filter-item-delete')[3]?.click();")
-    time.sleep(1)
-    
-    # 设置日期范围
-    start_input = iframe.ele('@placeholder=开始日期')
-    end_input = iframe.ele('@placeholder=结束日期')
-    iframe.run_js('arguments[0].removeAttribute("readonly");', start_input)
-    iframe.run_js('arguments[0].removeAttribute("readonly");', end_input)
-    
-    start_input.clear().input(batch['start'])
-    end_input.clear().input(batch['end'])
-    iframe.actions.key_down('ENTER').key_up('ENTER')
-    
-    # 分析数据
-    iframe.ele('text:开始分析').click()
-    print(f"[{get_now()}] 🔍 等待数据查询...")
-    iframe.wait.ele_deleted('text:正在努力为您查询', timeout=60)
-    time.sleep(3)
-
-    # 下载逻辑
-    print(f"[{get_now()}] 🔍 正在定位下载图标...")
-    
-    # 重新获取iframe句柄
-    iframe = page.get_frame('.xy-shell__content-frame')
-    icon = iframe.ele('@aria-label=download', timeout=10)
-
-    if icon:
-        old_files = os.listdir(target_path)
-        page.set.download_path(target_path)
+    try:
+        # 重新获取iframe句柄，确保是最新的
+        iframe = page.get_frame('.xy-shell__content-frame')
         
-        # 定位到父级按钮
-        target_btn = icon.parent('tag:button')
+        # 等待页面稳定
+        time.sleep(2)
         
-        # 模拟长按触发下拉菜单
-        print(f"[{get_now()}] ⏳ 正在模拟长按/悬停触发菜单...")
-        iframe.actions.move_to(target_btn)
-        iframe.actions.hold(target_btn)
-        time.sleep(1.5)
-        iframe.actions.release(target_btn)
-        
-        print(f"[{get_now()}] ✅ 长按动作完成")
-        
-        # 等待菜单出现
-        menu_item = iframe.wait.ele_displayed('text=导出全量数据', timeout=5)
-        
-        if menu_item:
-            menu_item.click(by_js=True)
-            print(f"[{get_now()}] 📥 导出指令已发送")
-            time.sleep(3)
+        # 1. 清空筛选条件 - 增加重试机制
+        print(f"[{get_now()}] 🧹 清空筛选条件...")
+        clear_success = False
+        for retry in range(3):
+            try:
+                clear_btns = iframe.eles('.filter-item-delete', timeout=3)
+                if len(clear_btns) >= 4:
+                    clear_btns[3].click()
+                    clear_success = True
+                    print(f"[{get_now()}] ✅ 成功清空筛选条件")
+                    break
+                else:
+                    print(f"[{get_now()}] ⚠️ 清空按钮不足，尝试第{retry+1}次...")
+            except Exception as e:
+                print(f"[{get_now()}] ⚠️ 清空操作失败，尝试第{retry+1}次: {e}")
             
+            if not clear_success:
+                time.sleep(1)
+        
+        if not clear_success:
+            print(f"[{get_now()}] ⚠️ 清空筛选条件失败，但继续执行...")
+        
+        time.sleep(1)
+        
+        # 2. 设置日期范围 - 增加重试机制
+        print(f"[{get_now()}] 📅 设置日期范围...")
+        date_set_success = False
+        for retry in range(3):
+            try:
+                start_input = iframe.ele('@placeholder=开始日期', timeout=5)
+                end_input = iframe.ele('@placeholder=结束日期', timeout=5)
+                
+                if start_input and end_input:
+                    # 移除只读属性
+                    iframe.run_js('arguments[0].removeAttribute("readonly");', start_input)
+                    iframe.run_js('arguments[0].removeAttribute("readonly");', end_input)
+                    
+                    # 清空并输入日期
+                    start_input.clear().input(batch['start'])
+                    end_input.clear().input(batch['end'])
+                    
+                    # 按回车确认
+                    iframe.actions.key_down('ENTER').key_up('ENTER')
+                    
+                    date_set_success = True
+                    print(f"[{get_now()}] ✅ 成功设置日期范围: {batch['start']} ~ {batch['end']}")
+                    break
+                else:
+                    print(f"[{get_now()}] ⚠️ 日期输入框未找到，尝试第{retry+1}次...")
+            except Exception as e:
+                print(f"[{get_now()}] ⚠️ 设置日期失败，尝试第{retry+1}次: {e}")
+            
+            if not date_set_success:
+                time.sleep(2)
+        
+        if not date_set_success:
+            print(f"[{get_now()}] ❌ 设置日期范围失败")
+            return {
+                'success': False,
+                'export_start_time': export_start_time,
+                'batch_info': f"{batch['start']} ~ {batch['end']}"
+            }
+        
+        # 3. 开始分析 - 增加重试机制
+        print(f"[{get_now()}] 🔍 点击开始分析...")
+        analysis_success = False
+        for retry in range(3):
+            try:
+                analyze_btn = iframe.ele('text:开始分析', timeout=5)
+                if analyze_btn:
+                    analyze_btn.click()
+                    analysis_success = True
+                    print(f"[{get_now()}] ✅ 成功点击开始分析")
+                    break
+                else:
+                    print(f"[{get_now()}] ⚠️ 开始分析按钮未找到，尝试第{retry+1}次...")
+            except Exception as e:
+                print(f"[{get_now()}] ⚠️ 点击开始分析失败，尝试第{retry+1}次: {e}")
+            
+            if not analysis_success:
+                time.sleep(2)
+        
+        if not analysis_success:
+            print(f"[{get_now()}] ❌ 点击开始分析失败")
+            return {
+                'success': False,
+                'export_start_time': export_start_time,
+                'batch_info': f"{batch['start']} ~ {batch['end']}"
+            }
+        
+        print(f"[{get_now()}] 🔍 等待数据查询...")
+        try:
+            iframe.wait.ele_deleted('text:正在努力为您查询', timeout=60)
+            print(f"[{get_now()}] ✅ 数据查询完成")
+        except:
+            print(f"[{get_now()}] ⚠️ 查询完成状态检查超时，但继续执行...")
+        
+        time.sleep(3)
+
+        # 4. 下载逻辑 - 增加重试机制
+        print(f"[{get_now()}] 🔍 正在定位下载图标...")
+        
+        # 重新获取iframe句柄
+        iframe = page.get_frame('.xy-shell__content-frame')
+        
+        # 等待页面稳定
+        time.sleep(2)
+        
+        download_success = False
+        for retry in range(3):
+            try:
+                icon = iframe.ele('@aria-label=download', timeout=10)
+                
+                if icon:
+                    old_files = os.listdir(target_path)
+                    page.set.download_path(target_path)
+                    
+                    # 定位到父级按钮
+                    target_btn = icon.parent('tag:button')
+                    
+                    # 模拟长按触发下拉菜单
+                    print(f"[{get_now()}] ⏳ 正在模拟长按/悬停触发菜单...")
+                    iframe.actions.move_to(target_btn)
+                    iframe.actions.hold(target_btn)
+                    time.sleep(1.5)
+                    iframe.actions.release(target_btn)
+                    
+                    print(f"[{get_now()}] ✅ 长按动作完成")
+                    
+                    # 等待菜单出现
+                    menu_item = iframe.wait.ele_displayed('text=导出全量数据', timeout=5)
+                    
+                    if menu_item:
+                        menu_item.click(by_js=True)
+                        print(f"[{get_now()}] 📥 导出指令已发送")
+                        time.sleep(3)
+                        download_success = True
+                        break
+                    else:
+                        print(f"[{get_now()}] ⚠️ 长按后下拉菜单仍未显示，尝试第{retry+1}次...")
+                else:
+                    print(f"[{get_now()}] ⚠️ 未找到下载按钮图标，尝试第{retry+1}次...")
+            except Exception as e:
+                print(f"[{get_now()}] ⚠️ 下载操作失败，尝试第{retry+1}次: {e}")
+            
+            if not download_success:
+                time.sleep(3)
+        
+        if download_success:
             # 返回这个批次的导出信息，用于后续识别
             return {
                 'success': True,
@@ -128,14 +419,15 @@ def process_date_batch(page, iframe, batch, batch_number, total_batches):
                 'batch_info': f"{batch['start']} ~ {batch['end']}"
             }
         else:
-            print("❌ 长按后下拉菜单仍未显示")
+            print("❌ 下载操作多次失败")
             return {
                 'success': False,
                 'export_start_time': export_start_time,
                 'batch_info': f"{batch['start']} ~ {batch['end']}"
             }
-    else:
-        print("❌ 未找到下载按钮图标")
+            
+    except Exception as e:
+        print(f"[{get_now()}] ❌ 批次处理过程中出现异常: {e}")
         return {
             'success': False,
             'export_start_time': export_start_time,
@@ -144,6 +436,8 @@ def process_date_batch(page, iframe, batch, batch_number, total_batches):
 
 def run_task():
     co = ChromiumOptions()
+    # 设置浏览器启动时最大化
+    co.set_argument('--start-maximized')
     page = ChromiumPage(co)
     
     # 初始化变量，确保在所有情况下都可用
@@ -170,13 +464,53 @@ def run_task():
         target_url = "https://xy.ele.me/xy-zzfx?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fself-analysis%3FversionCode%3Dcd-data-center%26appId%3DAUTO_ARK_3gw8GqJPF%26spaceId%3D140%26analysisCode%3DlNuxr%26recordId%3D150776"
         page.get(target_url)
         
-        # 3. Iframe 捕获
-        time.sleep(3)
-        iframe = page.get_frame('.xy-shell__content-frame')
-        if not iframe:
-            print("❌ 未发现 Iframe"); return
+        # 等待页面完全加载
+        print(f"[{get_now()}] ⏳ 等待页面完全加载...")
+        time.sleep(5)
         
-        iframe.wait.ele_displayed('.filter-item-delete', timeout=20)
+        # 检查页面是否完全加载
+        try:
+            page.wait.load_complete(timeout=10)
+            print(f"[{get_now()}] ✅ 页面加载完成")
+        except:
+            print(f"[{get_now()}] ⚠️ 页面加载状态检查失败，继续执行...")
+        
+        # 3. Iframe 捕获 - 增加重试机制
+        iframe = None
+        max_retry = 3
+        for retry in range(max_retry):
+            print(f"[{get_now()}] 🔍 尝试获取iframe (第{retry+1}次)...")
+            time.sleep(2)
+            iframe = page.get_frame('.xy-shell__content-frame')
+            if iframe:
+                print(f"[{get_now()}] ✅ 成功获取iframe")
+                break
+            else:
+                print(f"[{get_now()}] ⚠️ 第{retry+1}次未找到iframe，{3-retry}次后重试...")
+                time.sleep(2)
+        
+        if not iframe:
+            print("❌ 多次尝试后仍未发现 Iframe，可能页面加载有问题")
+            return
+        
+        # 等待iframe内容加载
+        print(f"[{get_now()}] ⏳ 等待iframe内容加载...")
+        time.sleep(3)
+        
+        # 尝试等待关键元素出现
+        try:
+            print(f"[{get_now()}] 🔍 检查关键元素是否加载...")
+            iframe.wait.ele_displayed('.filter-item-delete', timeout=15)
+            print(f"[{get_now()}] ✅ 关键元素已加载")
+        except:
+            print(f"[{get_now()}] ⚠️ 关键元素加载超时，但继续执行...")
+            # 检查页面是否有内容
+            try:
+                # 尝试等待页面有内容出现
+                iframe.wait.ele_displayed('body', timeout=5)
+                print(f"[{get_now()}] ✅ 页面基本元素已加载")
+            except:
+                print(f"[{get_now()}] ❌ 页面加载可能存在问题")
 
         # 分割日期范围
         date_batches = split_date_range(target_dates['start'], target_dates['end'], max_days=8)
@@ -349,7 +683,30 @@ def run_task():
                 print(f"  - 第{row_index+1}行")
         else:
             print(f"[{get_now()}] ℹ️ 本次没有下载任何文件")
+
+        # --- 6. 文件时间戳验证 ---
+        print(f"[{get_now()}] 🔍 开始验证文件下载情况...")
+        # 使用实际的导出时间窗口（从第一个批次开始到最后一个批次结束后30秒）
+        if export_start_times:
+            actual_window_start = min(export_start_times)
+            actual_window_end = max(export_start_times) + timedelta(seconds=30)
+            time_windows = [(actual_window_start, actual_window_end)]
+            print(f"[{get_now()}] 📅 文件验证时间窗口: {actual_window_start.strftime('%Y-%m-%d %H:%M:%S')} ~ {actual_window_end.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            time_windows = []
         
+        # 轮询验证文件下载情况
+        verify_download_files_with_retry(target_path, time_windows, downloaded_rows)
+
+        # --- 7. 使用Polars合并新下载的文件 ---
+        if POLARS_AVAILABLE and downloaded_rows:
+            print(f"[{get_now()}] 📊 开始使用Polars合并新下载的文件...")
+            merge_downloaded_files(target_path, target_dates['start'], target_dates['end'])
+        elif not POLARS_AVAILABLE:
+            print(f"[{get_now()}] ℹ️ Polars未安装，跳过文件合并功能")
+        else:
+            print(f"[{get_now()}] ℹ️ 没有下载的文件，跳过合并功能")
+
         page.close()
 
 if __name__ == "__main__":
