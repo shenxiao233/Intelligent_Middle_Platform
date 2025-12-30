@@ -16,13 +16,15 @@ class AutomationThread(QThread):
     finished_signal = Signal(str, bool, str, str)  # 参数：任务Key, 是否成功, 提示消息, 下载路径
     log_signal = Signal(str, str)  # 参数：任务Key, 日志内容
 
-    def __init__(self, task_key, url, start_date, end_date, cookie_json):
+    def __init__(self, task_key, url, start_date, end_date, cookie_json, task_type=None, config_info=None):
         super().__init__()
         self.task_key = task_key
         self.url = url
         self.start_date = start_date
         self.end_date = end_date
         self.cookie_json = cookie_json
+        self.task_type = task_type
+        self.config_info = config_info
         self._is_running = True
 
     def _log_callback(self, log_message):
@@ -44,16 +46,30 @@ class AutomationThread(QThread):
             worker.inject_cookies(self.cookie_json)
 
             # 执行任务
-            result_path = worker.run_task(self.url, self.start_date, self.end_date)
+            result_path = worker.run_task(self.url, self.start_date, self.end_date, 
+                                        self.task_type, self.config_info)
 
             worker.quit()
 
-            if result_path:
+            # 检查result_path的类型，如果是路径字符串则获取其所在目录
+            if result_path and isinstance(result_path, str):
                 # 获取文件所在目录
-                download_dir = os.path.dirname(result_path)
+                if os.path.isfile(result_path):
+                    download_dir = os.path.dirname(result_path)
+                elif os.path.isdir(result_path):
+                    download_dir = result_path
+                else:
+                    # 如果是路径字符串但不是有效的文件或目录，使用默认值
+                    download_dir = os.getcwd()
+                
                 self.finished_signal.emit(self.task_key, True, "同步完成", download_dir)
             else:
-                self.finished_signal.emit(self.task_key, False, "同步失败：未找到文件", None)
+                # 如果result_path不是路径字符串，判断是成功还是失败
+                # 如果result_path是True（布尔值），说明任务执行成功但没有文件返回
+                if result_path is True:
+                    self.finished_signal.emit(self.task_key, True, "同步完成（无文件返回）", os.getcwd())
+                else:
+                    self.finished_signal.emit(self.task_key, False, "同步失败：未找到文件", None)
         except Exception as e:
             self.finished_signal.emit(self.task_key, False, f"异常: {str(e)}", None)
 
@@ -99,7 +115,8 @@ class DownloadDispatcher(QObject):
         # 这里就是你原本的 AutomationThread
         self.worker = AutomationThread(
             task['key'], task['url'], task['start_date'],
-            task['end_date'], task['cookie_json']
+            task['end_date'], task['cookie_json'],
+            task.get('task_type'), task.get('config_info')
         )
         # 任务跑完后，通知 dispatcher
         self.worker.finished_signal.connect(self._on_finished)
@@ -707,11 +724,14 @@ class ExportWorkspacePage(QWidget):
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
                 for key, data in config_data.items():
-                    # 传入 JSON 中的 type 和 config
+                    # 支持新旧字段名，确保向后兼容性
+                    task_type = data.get('task_type') or data.get('type', "单页单表")
+                    config_info = data.get('config_info') or data.get('config', {})
+                    
                     self.add_card(
                         data['name'], key, data['url'],
-                        task_type=data.get('type', "单页单表"),
-                        config_info=data.get('config', {}),
+                        task_type=task_type,
+                        config_info=config_info,
                         auto_save=False
                     )
         except Exception as e:
@@ -724,8 +744,8 @@ class ExportWorkspacePage(QWidget):
             config_data[key] = {
                 "name": card.lbl_name.text(),
                 "url": card.task_url,
-                "type": getattr(card, 'task_type', "单页单表"),
-                "config": getattr(card, 'config_info', {})  # 存储包含表名、TAB在内的完整字典
+                "task_type": getattr(card, 'task_type', "单页单表"),  # 保存为 "task_type" 字段
+                "config_info": getattr(card, 'config_info', {})       # 保存为 "config_info" 字段
             }
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
@@ -832,7 +852,9 @@ class ExportWorkspacePage(QWidget):
             "url": card.task_url,
             "start_date": start_dt,
             "end_date": end_dt,
-            "cookie_json": json.dumps(cookie_list)
+            "cookie_json": json.dumps(cookie_list),
+            "task_type": card.task_type,       # 从卡片对象获取任务类型
+            "config_info": card.config_info    # 从卡片对象获取配置信息
         }
 
         # 5. 提交给全局调度管家
