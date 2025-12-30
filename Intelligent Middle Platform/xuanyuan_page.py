@@ -223,7 +223,7 @@ class TaskConfigDialog(QDialog):
 
         self.add_label("任务下载属性")
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["单页单表", "单页多表(无TAB)", "单页多表(有TAB)", "单页多表(有多级TAB)"])
+        self.type_combo.addItems(["单页单表", "自定义看板", "单页多表(无TAB)", "单页多表(有TAB)", "单页多表(有多级TAB)"])
         self.type_combo.setCurrentText(task_type)
         self.type_combo.setStyleSheet(input_style)
         self.type_combo.currentTextChanged.connect(self._on_type_changed)
