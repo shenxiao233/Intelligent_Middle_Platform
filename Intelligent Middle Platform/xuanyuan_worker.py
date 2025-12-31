@@ -72,7 +72,7 @@ class ElemeDataWorker:
         # 初始化配置
         self.co = ChromiumOptions()
         # 如果需要无头模式可以取消下面注释
-        # self.co.set_argument('--headless')  # 注释掉无头模式，便于调试
+        self.co.set_argument('--headless')  # 注释掉无头模式，便于调试
         # 设置下载目录
         self.co.set_argument('--download-default-directory', self.target_path)
         # 添加一些其他有用的参数
@@ -131,7 +131,7 @@ class ElemeDataWorker:
         else:
             self._log(f"[{self._get_now()}] ❌ 未知的任务类型: {task_type}")
             self._log(f"[{self._get_now()}] 📋 可用的任务类型: {list(task_handlers.keys())}")
-            return False
+            return self.target_path
 
     def run_single_page_task(self, target_url, start_date, end_date, config_info=None, task_name=None):
         """执行单页单表任务（原逻辑）"""
@@ -142,7 +142,7 @@ class ElemeDataWorker:
         iframe = self.page.get_frame('.ark-lowcode-frame')
         if not iframe:
             self._log("❌ 未能找到业务框架，任务终止")
-            return False
+            return self.target_path
 
         # 2. 设置日期
         max_retries = 3
@@ -183,7 +183,7 @@ class ElemeDataWorker:
             # 如果是最后一次尝试仍然失败
             if attempt == max_retries - 1:
                 self._log(f"❌ 经过 {max_retries} 次尝试，无法正确设置日期。")
-                return False
+                return self.target_path
 
         # 3. 点击查询并等待
         search_btn = (iframe.ele('text:查 询', timeout=2) or
@@ -207,7 +207,7 @@ class ElemeDataWorker:
 
         if not btn:
             self._log("❌ 未找到下载按钮")
-            return False
+            return self.target_path
 
         check_minute = datetime.now().strftime("%Y%m%d%H%M")
         self.page.set.download_path(self.target_path)
@@ -245,7 +245,7 @@ class ElemeDataWorker:
 
         os.rename(old_path, new_path)
         self._log(f"[{self._get_now()}] ✅ 文件保存成功: {new_name}")
-        return new_path
+        return self.target_path
 
     def run_custom_dashboard_task(self, target_url, start_date, end_date, config_info=None, task_name=None):
         """执行自定义看板任务
@@ -346,17 +346,17 @@ class ElemeDataWorker:
                 
                 # 如果有匹配的文件，即使没有合并文件，也返回第一个文件的路径
                 if matched_files and len(matched_files) > 0:
-                    return matched_files[0]  # 返回第一个匹配文件的路径
+                    return self.target_path  # 返回保存目录，统一打开文件夹行为
                 else:
                     # 如果没有任何匹配文件，返回目标目录路径
                     return self.target_path
             else:
                 self._log(f"[{self._get_now()}] ❌ 没有成功处理的批次")
-                return False
+                return self.target_path
                 
         except Exception as e:
             self._log(f"[{self._get_now()}] ❌ 自定义看板任务执行异常: {e}")
-            return False
+            return self.target_path
 
     def _process_date_batch(self, iframe, batch, batch_number, total_batches):
         """处理单个日期批次的数据下载"""
