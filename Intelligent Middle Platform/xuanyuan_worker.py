@@ -74,7 +74,7 @@ class ElemeDataWorker:
         # 如果需要无头模式可以取消下面注释
         # self.co.set_argument('--headless')  # 注释掉无头模式，便于调试
         # 设置下载目录
-        # self.co.set_argument('--download-default-directory', self.target_path)
+        self.co.set_argument('--download-default-directory', self.target_path)
         # 添加一些其他有用的参数
         self.co.set_argument('--disable-extensions')
         self.co.set_argument('--no-sandbox')
@@ -133,7 +133,7 @@ class ElemeDataWorker:
             self._log(f"[{self._get_now()}] 📋 可用的任务类型: {list(task_handlers.keys())}")
             return False
 
-    def run_single_page_task(self, target_url, start_date, end_date, config_info=None):
+    def run_single_page_task(self, target_url, start_date, end_date, config_info=None, task_name=None):
         """执行单页单表任务（原逻辑）"""
         self.page.get(target_url)
         time.sleep(1)
@@ -315,7 +315,8 @@ class ElemeDataWorker:
                 # 9. 构建时间窗口用于验证
                 # 使用实际的导出时间窗口（从第一个批次开始到最后一个批次结束后30秒）
                 if export_start_times:
-                    actual_window_start = min(export_start_times)
+                    # 修复时间窗口计算问题：将开始时间提前2秒，确保所有相关文件都能被包含在内
+                    actual_window_start = min(export_start_times) - timedelta(seconds=5)
                     actual_window_end = max(export_start_times) + timedelta(seconds=30)
                     time_windows = [(actual_window_start, actual_window_end)]
                     self._log(f"[{self._get_now()}] 📅 文件验证时间窗口: {actual_window_start.strftime('%Y-%m-%d %H:%M:%S')} ~ {actual_window_end.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -332,7 +333,7 @@ class ElemeDataWorker:
                 
                 if POLARS_AVAILABLE and matched_files and isinstance(matched_files, list) and len(matched_files) > 0:
                     self._log(f"[{self._get_now()}] 📊 开始合并文件...")
-                    merged_file_path = self._merge_downloaded_files(self.target_path, start_date, end_date, task_name)
+                    merged_file_path = self._merge_downloaded_files(self.target_path, start_date, end_date, task_name, matched_files)
                     if merged_file_path:
                         self._log(f"[{self._get_now()}] ✅ 文件合并完成，合并文件路径: {merged_file_path}")
                     else:
@@ -574,11 +575,17 @@ class ElemeDataWorker:
             truncated_window_end = window_end.replace(microsecond=0)
             truncated_time_windows.append((truncated_window_start, truncated_window_end))
 
+        self._log(f"[{self._get_now()}] 🔍 开始验证文件，目录: {self.target_path}")
+        self._log(f"[{self._get_now()}] 📅 验证时间窗口: {truncated_time_windows[0][0].strftime('%Y-%m-%d %H:%M:%S')} ~ {truncated_time_windows[0][1].strftime('%Y-%m-%d %H:%M:%S')}")
+        self._log(f"[{self._get_now()}] 📋 目录中的文件: {files}")
+
         for file in files:
+            self._log(f"[{self._get_now()}] 📋 检查文件: {file}")
             # 尝试从文件名中提取时间戳
             timestamp_match = re.search(r'(\d{14,17})', file)
             if timestamp_match:
                 timestamp_str = timestamp_match.group(1)
+                self._log(f"[{self._get_now()}] 📋 提取到时间戳: {timestamp_str}")
                 try:
                     # 解析时间戳
                     if len(timestamp_str) >= 14:
@@ -588,15 +595,22 @@ class ElemeDataWorker:
                             if len(microsecond_part) <= 6:
                                 microsecond = int(microsecond_part.ljust(6, '0'))
                                 file_time = file_time.replace(microsecond=microsecond)
+                    self._log(f"[{self._get_now()}] 📋 解析时间戳为: {file_time}")
 
                     # 检查是否在预期的时间窗口内（使用截断后的时间窗口）
                     for window_start, window_end in truncated_time_windows:
+                        self._log(f"[{self._get_now()}] 📋 检查是否在时间窗口内: {file_time} 是否在 {window_start} 和 {window_end} 之间")
                         if window_start <= file_time <= window_end:
                             matched_files.append(os.path.join(self.target_path, file))
+                            self._log(f"[{self._get_now()}] ✅ 文件匹配成功: {file}")
                             break
-                except ValueError:
-                    # 忽略无法解析的文件
+                        else:
+                            self._log(f"[{self._get_now()}] ⏭️ 文件不在时间窗口内: {file}")
+                except ValueError as e:
+                    self._log(f"[{self._get_now()}] ⚠️ 无法解析时间戳 {timestamp_str}: {e}")
                     continue
+            else:
+                self._log(f"[{self._get_now()}] ⚠️ 文件名中没有找到时间戳: {file}")
 
         # 汇总结果（简化输出）
         self._log(f"[{self._get_now()}] 📊 验证结果: 找到 {len(matched_files)} 个匹配文件")
@@ -643,7 +657,7 @@ class ElemeDataWorker:
         final_matched = self._verify_download_files(time_windows)
         return final_matched
 
-    def _merge_downloaded_files(self, download_path, date_range_start, date_range_end, task_name=None):
+    def _merge_downloaded_files(self, download_path, date_range_start, date_range_end, task_name=None, matched_files=None):
         """使用Polars合并新下载的文件
         
         参数:
@@ -651,6 +665,7 @@ class ElemeDataWorker:
             date_range_start: 开始日期
             date_range_end: 结束日期
             task_name: 任务名称，用于生成文件名
+            matched_files: 已匹配的文件列表，仅合并这些文件
             
         返回值:
             str: 合并文件的路径，合并失败返回None
@@ -663,102 +678,134 @@ class ElemeDataWorker:
             self._log(f"[{self._get_now()}] ❌ 下载目录不存在: {download_path}")
             return
         
-        # 获取所有xlsx文件
-        files = [f for f in os.listdir(download_path) if f.endswith('.xlsx')]
-        if not files:
-            self._log(f"[{self._get_now()}] ℹ️ 下载目录中没有找到xlsx文件")
-            return
-        
-        # 检查是否有多个时间段的文件
-        file_with_timestamps = []
-        for file in files:
-            timestamp = extract_timestamp_from_filename(file)
-            if timestamp:
-                file_with_timestamps.append((timestamp, file))
+        # 获取文件列表
+        if matched_files and isinstance(matched_files, list):
+            # 使用传入的已匹配文件列表
+            file_with_timestamps = []
+            for file_path in matched_files:
+                # 获取文件名
+                file = os.path.basename(file_path)
+                if not file.endswith('.xlsx'):
+                    continue
+                
+                # 从文件名中提取时间戳
+                timestamp = extract_timestamp_from_filename(file)
+                if timestamp:
+                    file_with_timestamps.append((timestamp, file))
+        else:
+            # 从目录中获取所有xlsx文件
+            files = [f for f in os.listdir(download_path) if f.endswith('.xlsx')]
+            if not files:
+                self._log(f"[{self._get_now()}] ℹ️ 下载目录中没有找到xlsx文件")
+                return
+            
+            # 检查是否有多个时间段的文件
+            file_with_timestamps = []
+            for file in files:
+                timestamp = extract_timestamp_from_filename(file)
+                if timestamp:
+                    file_with_timestamps.append((timestamp, file))
         
         if not file_with_timestamps:
             self._log(f"[{self._get_now()}] ⚠️ 没有找到包含有效时间戳的文件")
             return
         
-        # 按时间戳排序
+        # 按时间戳排序，时间戳小的文件先合并
         file_with_timestamps.sort(key=lambda x: x[0])
-        
-        # 只有多个文件才需要合并
-        if len(file_with_timestamps) < 2:
-            self._log(f"[{self._get_now()}] ℹ️ 只有 {len(file_with_timestamps)} 个文件，不需要合并")
-            # 返回第一个文件的路径
-            return os.path.join(download_path, file_with_timestamps[0][1])
         
         self._log(f"[{self._get_now()}] 📁 找到 {len(file_with_timestamps)} 个文件，按时间戳排序:")
         for timestamp, file in file_with_timestamps:
             self._log(f"  📄 {file} ({timestamp.strftime('%Y-%m-%d %H:%M:%S')})")
         
-        # 使用Polars读取并合并文件
-        dataframes = []
-        
-        for timestamp, file in file_with_timestamps:
-            file_path = os.path.join(download_path, file)
-            try:
-                self._log(f"[{self._get_now()}] 📖 读取文件: {file}")
-                df = pl.read_excel(file_path)
-                dataframes.append(df)
-                self._log(f"[{self._get_now()}] ✅ 成功读取 {file}，共 {len(df)} 行数据")
-            except Exception as e:
-                self._log(f"[{self._get_now()}] ❌ 读取文件失败 {file}: {e}")
-                continue
-        
-        if not dataframes:
-            self._log(f"[{self._get_now()}] ❌ 没有成功读取任何文件")
-            return
-        
-        # 合并所有数据框
-        self._log(f"[{self._get_now()}] 🔄 开始合并 {len(dataframes)} 个文件...")
-        try:
-            merged_df = pl.concat(dataframes, how="vertical")
-            self._log(f"[{self._get_now()}] ✅ 文件合并完成，总计 {len(merged_df)} 行数据")
-        except Exception as e:
-            self._log(f"[{self._get_now()}] ❌ 文件合并失败: {e}")
-            return
-        
-        # 生成输出文件名（使用任务名称和日期范围）
-        date_suffix = f"{date_range_start.replace('-', '')}至{date_range_end.replace('-', '')}"
+        # 生成输出文件名（直接使用任务名称，不新增时间戳后缀）
         if task_name:
+            # 直接使用任务名称作为文件名
+            # 移除文件名中的非法字符
+            base_name = task_name
+            # 移除或替换非法字符
+            base_name = base_name.replace(':', '').replace('/', '').replace('\\', '').replace('*', '').replace('?', '').replace('"', '').replace('<', '').replace('>', '').replace('|', '')
             # 移除任务名称中的日期部分（如果存在）
-            name_parts = task_name.split('_')
+            name_parts = base_name.split('_')
             if len(name_parts) > 3 and '至' in name_parts[-1]:
                 base_name = '_'.join(name_parts[:-2])
-            else:
-                base_name = task_name
             
-            output_filename = f"{base_name}_合并_{date_suffix}.xlsx"
+            output_filename = f"{base_name}.xlsx"
         else:
-            output_filename = f"D端-考核_表格_合并_{date_suffix}.xlsx"
+            output_filename = f"D端-考核_表格.xlsx"
         
         output_path = os.path.join(download_path, output_filename)
         
         try:
-            self._log(f"[{self._get_now()}] 💾 保存合并文件: {output_filename}")
-            self._log(f"[{self._get_now()}] 📍 输出路径: {output_path}")
-            merged_df.write_excel(output_path)
-            self._log(f"[{self._get_now()}] ✅ 文件保存成功: {output_path}")
-            self._log(f"[{self._get_now()}] 📊 合并结果: {len(merged_df)} 行 × {len(merged_df.columns)} 列")
-            
-            # 删除原始文件
-            self._log(f"[{self._get_now()}] 🗑️ 开始删除原始文件...")
-            for timestamp, file in file_with_timestamps:
-                file_path = os.path.join(download_path, file)
-                if os.path.exists(file_path) and file_path != output_path:
+            if len(file_with_timestamps) == 1:
+                # 单个文件：直接重命名
+                self._log(f"[{self._get_now()}] 💾 单个文件，执行重命名操作: {output_filename}")
+                self._log(f"[{self._get_now()}] 📍 输出路径: {output_path}")
+                
+                # 获取原始文件路径
+                original_file_path = os.path.join(download_path, file_with_timestamps[0][1])
+                
+                # 删除已存在的输出文件（如果有）
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                
+                # 重命名文件
+                os.rename(original_file_path, output_path)
+                self._log(f"[{self._get_now()}] ✅ 文件重命名成功: {output_filename}")
+                self._log(f"[{self._get_now()}] 🎉 文件处理完成！")
+            else:
+                # 多个文件：执行合并操作
+                self._log(f"[{self._get_now()}] 💾 多个文件，执行合并操作: {output_filename}")
+                self._log(f"[{self._get_now()}] 📍 输出路径: {output_path}")
+                
+                # 使用Polars读取并合并文件
+                dataframes = []
+                
+                for timestamp, file in file_with_timestamps:
+                    file_path = os.path.join(download_path, file)
                     try:
-                        os.remove(file_path)
-                        self._log(f"[{self._get_now()}] ✅ 删除成功: {file}")
+                        self._log(f"[{self._get_now()}] 📖 读取文件: {file}")
+                        df = pl.read_excel(file_path)
+                        dataframes.append(df)
+                        self._log(f"[{self._get_now()}] ✅ 成功读取 {file}，共 {len(df)} 行数据")
                     except Exception as e:
-                        self._log(f"[{self._get_now()}] ❌ 删除失败 {file}: {e}")
-            
-            self._log(f"[{self._get_now()}] 🎉 文件合并完成！")
-            return output_path  # 返回合并文件的路径
+                        self._log(f"[{self._get_now()}] ❌ 读取文件失败 {file}: {e}")
+                        continue
+                
+                if not dataframes:
+                    self._log(f"[{self._get_now()}] ❌ 没有成功读取任何文件")
+                    return None
+                
+                # 合并所有数据框
+                self._log(f"[{self._get_now()}] 🔄 开始合并 {len(dataframes)} 个文件...")
+                try:
+                    merged_df = pl.concat(dataframes, how="vertical")
+                    self._log(f"[{self._get_now()}] ✅ 文件合并完成，总计 {len(merged_df)} 行数据")
+                except Exception as e:
+                    self._log(f"[{self._get_now()}] ❌ 文件合并失败: {e}")
+                    return None
+                
+                # 保存合并文件
+                merged_df.write_excel(output_path)
+                self._log(f"[{self._get_now()}] ✅ 文件保存成功: {output_path}")
+                self._log(f"[{self._get_now()}] 📊 合并结果: {len(merged_df)} 行 × {len(merged_df.columns)} 列")
+                
+                # 删除原始文件
+                self._log(f"[{self._get_now()}] 🗑️ 开始删除原始文件...")
+                for timestamp, file in file_with_timestamps:
+                    file_path = os.path.join(download_path, file)
+                    if os.path.exists(file_path) and file_path != output_path:
+                        try:
+                            os.remove(file_path)
+                            self._log(f"[{self._get_now()}] ✅ 删除成功: {file}")
+                        except Exception as e:
+                            self._log(f"[{self._get_now()}] ❌ 删除失败 {file}: {e}")
+                
+                self._log(f"[{self._get_now()}] 🎉 文件合并完成！")
         except Exception as e:
-            self._log(f"[{self._get_now()}] ❌ 保存文件失败: {e}")
+            self._log(f"[{self._get_now()}] ❌ 处理文件失败: {e}")
             return None
+        
+        return output_path  # 返回处理后的文件路径
 
     def _handle_batch_download(self, export_start_times, start_date, end_date):
         """处理批量下载逻辑"""
@@ -766,7 +813,8 @@ class ElemeDataWorker:
         
         # 计算导出时间窗口（从第一个批次开始到最后一个批次结束后30秒）
         if export_start_times:
-            export_window_start = min(export_start_times)
+            # 修复时间窗口计算问题：将开始时间提前2秒，确保所有相关文件都能被包含在内
+            export_window_start = min(export_start_times) - timedelta(seconds=2)
             export_window_end = max(export_start_times) + timedelta(seconds=30)
             self._log(f"[{self._get_now()}] 📅 导出时间窗口: {export_window_start.strftime('%Y-%m-%d %H:%M:%S')} ~ {export_window_end.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
