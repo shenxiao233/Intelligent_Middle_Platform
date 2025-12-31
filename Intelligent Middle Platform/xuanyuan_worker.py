@@ -271,7 +271,7 @@ class ElemeDataWorker:
             
             # 3. 将日期范围分割为批次
             self._log(f"[{self._get_now()}] 📅 分割日期范围: {start_date} ~ {end_date}")
-            batches = split_date_range(start_date, end_date, max_days=8)
+            batches = split_date_range(start_date, end_date, max_days=7)
             self._log(f"[{self._get_now()}] 📊 分割为 {len(batches)} 个批次")
             
             # 4. 处理每个批次
@@ -360,9 +360,9 @@ class ElemeDataWorker:
     def _process_date_batch(self, iframe, batch, batch_number, total_batches):
         """处理单个日期批次的数据下载"""
         self._log(f"[{self._get_now()}] 📅 批次 {batch_number}/{total_batches}: {batch['start']} ~ {batch['end']}")
-        
-        # 记录导出开始时间
+        # 初始记录一个时间作为备份
         export_start_time = datetime.now()
+        
         
         try:
             # 重新获取iframe句柄，确保是最新的
@@ -395,44 +395,48 @@ class ElemeDataWorker:
             
             time.sleep(1)
             
-            # 2. 设置日期范围 - 增加重试机制
-            self._log(f"[{self._get_now()}] 📅 设置日期范围...")
+            # 2. 设置日期范围 - 增加严格校验循环
+            self._log(f"[{self._get_now()}] 📅 设置日期范围并校验...")
             date_set_success = False
-            for retry in range(3):
-                try:
-                    start_input = iframe.ele('@placeholder=开始日期', timeout=5)
-                    end_input = iframe.ele('@placeholder=结束日期', timeout=5)
+            
+            for retry in range(4):  # 增加到4次尝试
+                start_input = iframe.ele('@placeholder=开始日期', timeout=5)
+                end_input = iframe.ele('@placeholder=结束日期', timeout=5)
+                
+                if start_input and end_input:
+                    # 移除只读
+                    iframe.run_js('arguments[0].removeAttribute("readonly");', start_input)
+                    iframe.run_js('arguments[0].removeAttribute("readonly");', end_input)
                     
-                    if start_input and end_input:
-                        # 移除只读属性
-                        iframe.run_js('arguments[0].removeAttribute("readonly");', start_input)
-                        iframe.run_js('arguments[0].removeAttribute("readonly");', end_input)
-                        
-                        # 清空并输入日期
-                        start_input.clear().input(batch['start'])
-                        end_input.clear().input(batch['end'])
-                        
-                        # 按回车确认
-                        iframe.actions.key_down('ENTER').key_up('ENTER')
-                        
+                    # 清空并输入
+                    start_input.clear().input(batch['start'])
+                    time.sleep(0.2) # 给前端一点反应时间
+                    end_input.clear().input(batch['end'])
+                    
+                    # 关键：手动触发一次失去焦点或回车
+                    iframe.actions.key_down('ENTER').key_up('ENTER')
+                    time.sleep(0.5) 
+
+                    # --- 校验逻辑 ---
+                    actual_start = start_input.attr('value')
+                    actual_end = end_input.attr('value')
+
+                    if actual_start == batch['start'] and actual_end == batch['end']:
+                        self._log(f"[{self._get_now()}] ✅ 日期校验一致: {actual_start} ~ {actual_end}")
                         date_set_success = True
-                        self._log(f"[{self._get_now()}] ✅ 成功设置日期范围: {batch['start']} ~ {batch['end']}")
                         break
                     else:
-                        self._log(f"[{self._get_now()}] ⚠️ 日期输入框未找到，尝试第{retry+1}次...")
-                except Exception as e:
-                    self._log(f"[{self._get_now()}] ⚠️ 设置日期失败，尝试第{retry+1}次: {e}")
-                
-                if not date_set_success:
-                    time.sleep(2)
-            
+                        self._log(f"[{self._get_now()}] ⚠️ 日期校验失败(实际:{actual_start}~{actual_end})，重试第{retry+1}次...")
+                        # 如果失败，尝试先点击一下空白处或再次清除
+                        iframe.click((0,0)) 
+                        time.sleep(0.5)
+                else:
+                    self._log(f"[{self._get_now()}] ⚠️ 未找到输入框，重试中...")
+                    time.sleep(1)
+
             if not date_set_success:
-                self._log(f"[{self._get_now()}] ❌ 设置日期范围失败")
-                return {
-                    'success': False,
-                    'export_start_time': export_start_time,
-                    'batch_info': f"{batch['start']} ~ {batch['end']}"
-                }
+                self._log(f"[{self._get_now()}] ❌ 无法正确设置日期，跳过此批次")
+                return {'success': False, 'export_start_time': export_start_time, 'batch_info': f"{batch['start']} ~ {batch['end']}"}
             
             # 3. 开始分析 - 增加重试机制
             self._log(f"[{self._get_now()}] 🔍 点击开始分析...")
@@ -470,8 +474,8 @@ class ElemeDataWorker:
             
             time.sleep(3)
 
-            # 4. 下载逻辑 - 长按触发菜单
-            return self._handle_custom_download(iframe, export_start_time, batch)
+            result = self._handle_custom_download(iframe, export_start_time, batch)
+            return result
             
         except Exception as e:
             self._log(f"[{self._get_now()}] ❌ 批次处理过程中出现异常: {e}")
@@ -516,6 +520,7 @@ class ElemeDataWorker:
                     menu_item = iframe.wait.ele_displayed('text=导出全量数据', timeout=5)
                     
                     if menu_item:
+                        export_start_time = datetime.now()
                         menu_item.click(by_js=True)
                         self._log(f"[{self._get_now()}] 📥 导出指令已发送")
                         time.sleep(3)

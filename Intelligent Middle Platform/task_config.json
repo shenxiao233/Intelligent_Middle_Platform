@@ -2,31 +2,43 @@
     "T1734851550000": {
         "name": "有效商户明细_FY26",
         "url": "https://xy.ele.me/xy-bbjs?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fpage%3FversionCode%3Dcd-data-center%26analysisParams%3D%257B%2522appId%2522%253A%2522AUTO_ARK_3gw8GqJPF%2522%252C%2522spaceId%2522%253A140%252C%2522pageName%2522%253A%2522ARK_PAGE_4eXG7FWNb%2522%257D",
-        "type": "单页单表",
-        "config": {}
+        "task_type": "单页单表",
+        "config_info": {}
     },
     "T1766388093652": {
         "name": "爆单红包商户明细-商户维度",
         "url": "https://xy.ele.me/xy-bbjs?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fpage%3FversionCode%3Dcd-data-center%26analysisParams%3D%257B%2522appId%2522%253A%2522AUTO_ARK_3gw8GqJPF%2522%252C%2522spaceId%2522%253A140%252C%2522pageName%2522%253A%2522ARK_PAGE_4qP3SMINQ%2522%257D",
-        "type": "单页单表",
-        "config": {}
+        "task_type": "单页单表",
+        "config_info": {}
     },
     "T1766388198561": {
         "name": "战报_FY26",
         "url": "https://xy.ele.me/xy-bbjs?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fpage%3FversionCode%3Dcd-data-center%26analysisParams%3D%257B%2522appId%2522%253A%2522AUTO_ARK_3gw8GqJPF%2522%252C%2522spaceId%2522%253A140%252C%2522pageName%2522%253A%2522ARK_PAGE_4cGOhPbCD%2522%257D",
-        "type": "单页单表",
-        "config": {}
+        "task_type": "单页单表",
+        "config_info": {}
     },
     "T1766656058265": {
         "name": "运单宽表",
         "url": "https://xy.ele.me/xy-bbjs?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fpage%3FversionCode%3Dcd-data-center%26analysisParams%3D%257B%2522appId%2522%253A%2522AUTO_ARK_3gw8GqJPF%2522%252C%2522spaceId%2522%253A140%252C%2522pageName%2522%253A%2522ARK_PAGE_40lnVt8JV%2522%257D",
-        "type": "单页单表",
-        "config": {}
+        "task_type": "单页单表",
+        "config_info": {}
     },
     "T1767076902104": {
         "name": "商圈D端看板",
         "url": "https://xy.ele.me/xy-zzfx?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fself-analysis%3FversionCode%3Dcd-data-center%26appId%3DAUTO_ARK_3gw8GqJPF%26spaceId%3D140%26analysisCode%3DC83vz%26recordId%3D151560",
-        "type": "自定义看板",
-        "config": {}
+        "task_type": "自定义看板",
+        "config_info": {}
+    },
+    "T1767142906898": {
+        "name": "12月份考核",
+        "url": "https://xy.ele.me/xy-zzfx?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fself-analysis%3FversionCode%3Dcd-data-center%26appId%3DAUTO_ARK_3gw8GqJPF%26spaceId%3D140%26analysisCode%3DlNuxr%26recordId%3D151765",
+        "task_type": "自定义看板",
+        "config_info": {}
+    },
+    "T1767147415770": {
+        "name": "骑手扣款-降级单",
+        "url": "https://xy.ele.me/xy-zzfx?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fself-analysis%3FversionCode%3Dcd-data-center%26appId%3DAUTO_ARK_3gw8GqJPF%26spaceId%3D140%26analysisCode%3DfOteq%26recordId%3D151793",
+        "task_type": "自定义看板",
+        "config_info": {}
     }
 }
