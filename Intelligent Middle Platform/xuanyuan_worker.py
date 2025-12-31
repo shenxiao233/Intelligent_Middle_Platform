@@ -74,7 +74,7 @@ class ElemeDataWorker:
         # 如果需要无头模式可以取消下面注释
         # self.co.set_argument('--headless')  # 注释掉无头模式，便于调试
         # 设置下载目录
-        self.co.set_argument('--download-default-directory', self.target_path)
+        # self.co.set_argument('--download-default-directory', self.target_path)
         # 添加一些其他有用的参数
         self.co.set_argument('--disable-extensions')
         self.co.set_argument('--no-sandbox')
@@ -566,6 +566,14 @@ class ElemeDataWorker:
         # 解析文件名中的时间戳，只关注匹配的文件
         matched_files = []
 
+        # 修复时间窗口比较问题：将所有时间窗口的开始和结束时间都截断到秒级
+        # 这样可以与文件名中提取的时间戳精度匹配
+        truncated_time_windows = []
+        for window_start, window_end in time_windows:
+            truncated_window_start = window_start.replace(microsecond=0)
+            truncated_window_end = window_end.replace(microsecond=0)
+            truncated_time_windows.append((truncated_window_start, truncated_window_end))
+
         for file in files:
             # 尝试从文件名中提取时间戳
             timestamp_match = re.search(r'(\d{14,17})', file)
@@ -581,11 +589,11 @@ class ElemeDataWorker:
                                 microsecond = int(microsecond_part.ljust(6, '0'))
                                 file_time = file_time.replace(microsecond=microsecond)
 
-                        # 检查是否在预期的时间窗口内
-                        for window_start, window_end in time_windows:
-                            if window_start <= file_time <= window_end:
-                                matched_files.append(os.path.join(self.target_path, file))
-                                break
+                    # 检查是否在预期的时间窗口内（使用截断后的时间窗口）
+                    for window_start, window_end in truncated_time_windows:
+                        if window_start <= file_time <= window_end:
+                            matched_files.append(os.path.join(self.target_path, file))
+                            break
                 except ValueError:
                     # 忽略无法解析的文件
                     continue
@@ -775,6 +783,11 @@ class ElemeDataWorker:
             nonlocal downloaded_rows
             downloaded_this_round = 0
             rows = get_all_rows()
+            
+            # 修复时间窗口比较问题：将时间窗口的开始和结束时间都截断到秒级
+            # 这样可以与页面上显示的秒级时间字符串匹配
+            export_window_start = export_window_start.replace(microsecond=0)
+            export_window_end = export_window_end.replace(microsecond=0)
             
             for i, row in enumerate(rows):
                 try:
