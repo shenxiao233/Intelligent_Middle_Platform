@@ -14,6 +14,14 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen, QTextCursor
 
+def get_resource_path(relative_path):
+    """ 获取资源绝对路径，兼容 PyInstaller 环境 """
+    if hasattr(sys, '_MEIPASS'):
+        # 打包后，资源在临时文件夹 _MEIPASS 中
+        return os.path.join(sys._MEIPASS, relative_path)
+    # 开发环境下，资源在当前脚本文件夹中
+    return os.path.join(os.path.abspath("."), relative_path)
+
 
 class TaskItem(QWidget):
     abort_requested = Signal(str)
@@ -260,10 +268,10 @@ class DownloadCenterPage(QWidget):
         self.audio_output = QAudioOutput()
         self.notification_sound.setAudioOutput(self.audio_output)
         # 设置音量 (0.0 到 1.0)
-        self.audio_output.setVolume(0.8)
+        self.audio_output.setVolume(1.0)
         # 使用用户提供的提示音.mp3文件作为下载完成音效
         # 使用相对路径，确保打包后能正确找到音频文件
-        sound_path = os.path.abspath("提示音.mp3")
+        sound_path = get_resource_path("提示音.mp3")
         print(f"提示音路径: {sound_path}")
         if os.path.exists(sound_path):
             self.notification_sound.setSource(QUrl.fromLocalFile(sound_path))
@@ -469,7 +477,7 @@ class DownloadCenterPage(QWidget):
             # 播放任务完成提示音
             try:
                 # 重新设置源（确保每次播放都能正确加载）
-                sound_path = os.path.abspath("提示音.mp3")
+                sound_path = get_resource_path("提示音.mp3")
                 if os.path.exists(sound_path):
                     self.notification_sound.setSource(QUrl.fromLocalFile(sound_path))
                     print("尝试播放下载完成提示音...")

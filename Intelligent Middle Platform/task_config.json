@@ -40,5 +40,17 @@
         "url": "https://xy.ele.me/xy-zzfx?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fself-analysis%3FversionCode%3Dcd-data-center%26appId%3DAUTO_ARK_3gw8GqJPF%26spaceId%3D140%26analysisCode%3DfOteq%26recordId%3D151793",
         "task_type": "自定义看板",
         "config_info": {}
+    },
+    "T1767427420724": {
+        "name": "12月复盘数据",
+        "url": "https://xy.ele.me/xy-zzfx?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fself-analysis%3FversionCode%3Dcd-data-center%26appId%3DAUTO_ARK_3gw8GqJPF%26spaceId%3D140%26analysisCode%3DfOteq%26recordId%3D152494",
+        "task_type": "自定义看板",
+        "config_info": {}
+    },
+    "T1767428942565": {
+        "name": "12月复盘-分商圈数据",
+        "url": "https://xy.ele.me/xy-zzfx?url=https%3A%2F%2Fradar360.faas.ele.me%2Fxy%2Fdata-center%2Fself-analysis%3FversionCode%3Dcd-data-center%26appId%3DAUTO_ARK_3gw8GqJPF%26spaceId%3D140%26analysisCode%3Dpt1cR%26recordId%3D152515",
+        "task_type": "自定义看板",
+        "config_info": {}
     }
 }

@@ -77,7 +77,6 @@ class ElemeDataWorker:
         self.co.set_argument('--download-default-directory', self.target_path)
         # 添加一些其他有用的参数
         self.co.set_argument('--disable-extensions')
-        self.co.set_argument('--no-sandbox')
         self.co.set_argument('--disable-dev-shm-usage')
         
         self.page = ChromiumPage(self.co)
@@ -297,12 +296,15 @@ class ElemeDataWorker:
                 
                 # 6. 点击下载记录
                 self._log(f"[{self._get_now()}] 🔍 打开下载记录列表...")
+                time.sleep(1)
                 record_btn = self.page.ele('text:下载记录') or self.page.ele('@data-spm-anchor-id')
                 if record_btn:
                     record_btn.click()
                     time.sleep(3)
                 else:
                     self._log(f"[{self._get_now()}] ⚠️ 未找到下载记录按钮")
+                    self.page.refresh()
+                    time.sleep(3)
                 
                 # 7. 批量下载逻辑
                 # 8. 获取实际下载的行索引
@@ -363,15 +365,15 @@ class ElemeDataWorker:
         self._log(f"[{self._get_now()}] 📅 批次 {batch_number}/{total_batches}: {batch['start']} ~ {batch['end']}")
         # 初始记录一个时间作为备份
         export_start_time = datetime.now()
-        
-        
+
+
         try:
             # 重新获取iframe句柄，确保是最新的
             iframe = self.page.get_frame('.xy-shell__content-frame')
-            
+
             # 等待页面稳定
             time.sleep(2)
-            
+
             # 1. 清空筛选条件 - 增加重试机制
             self._log(f"[{self._get_now()}] 🧹 清空筛选条件...")
             clear_success = False
@@ -385,38 +387,42 @@ class ElemeDataWorker:
                         break
                     else:
                         self._log(f"[{self._get_now()}] ⚠️ 清空按钮不足，尝试第{retry+1}次...")
+                        self.page.refresh()  # 刷新当前页面
+                        time.sleep(3)  # 刷新后给予充足的加载时间
                 except Exception as e:
                     self._log(f"[{self._get_now()}] ⚠️ 清空操作失败，尝试第{retry+1}次: {e}")
-                
+                    self.page.refresh()
+                    time.sleep(3)
+
                 if not clear_success:
                     time.sleep(1)
-            
+
             if not clear_success:
                 self._log(f"[{self._get_now()}] ⚠️ 清空筛选条件失败，但继续执行...")
-            
+
             time.sleep(1)
-            
+
             # 2. 设置日期范围 - 增加严格校验循环
             self._log(f"[{self._get_now()}] 📅 设置日期范围并校验...")
             date_set_success = False
-            
+
             for retry in range(4):  # 增加到4次尝试
                 start_input = iframe.ele('@placeholder=开始日期', timeout=5)
                 end_input = iframe.ele('@placeholder=结束日期', timeout=5)
-                
+
                 if start_input and end_input:
                     # 移除只读
                     iframe.run_js('arguments[0].removeAttribute("readonly");', start_input)
                     iframe.run_js('arguments[0].removeAttribute("readonly");', end_input)
-                    
+
                     # 清空并输入
                     start_input.clear().input(batch['start'])
                     time.sleep(0.2) # 给前端一点反应时间
                     end_input.clear().input(batch['end'])
-                    
+
                     # 关键：手动触发一次失去焦点或回车
                     iframe.actions.key_down('ENTER').key_up('ENTER')
-                    time.sleep(0.5) 
+                    time.sleep(0.5)
 
                     # --- 校验逻辑 ---
                     actual_start = start_input.attr('value')
@@ -429,7 +435,7 @@ class ElemeDataWorker:
                     else:
                         self._log(f"[{self._get_now()}] ⚠️ 日期校验失败(实际:{actual_start}~{actual_end})，重试第{retry+1}次...")
                         # 如果失败，尝试先点击一下空白处或再次清除
-                        iframe.click((0,0)) 
+                        iframe.click((0,0))
                         time.sleep(0.5)
                 else:
                     self._log(f"[{self._get_now()}] ⚠️ 未找到输入框，重试中...")
