@@ -4,6 +4,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from DrissionPage import ChromiumPage, ChromiumOptions
+from SettingsPage import SettingsPage
 
 # 尝试导入polars，如果不存在则提示安装
 try:
@@ -69,8 +70,13 @@ class ElemeDataWorker:
         if not os.path.exists(self.target_path):
             os.makedirs(self.target_path)
         
+        # 日志回调函数 - 先初始化，确保_log方法可用
+        self.log_callback = log_callback
+        
         # 初始化配置
         self.co = ChromiumOptions()
+        # 使用独立的用户数据目录，避免影响用户当前浏览器会话
+        self.co.use_system_user_path = False
         # 如果需要无头模式可以取消下面注释
         self.co.set_argument('--headless')  # 注释掉无头模式，便于调试
         # 设置下载目录
@@ -79,10 +85,13 @@ class ElemeDataWorker:
         self.co.set_argument('--disable-extensions')
         self.co.set_argument('--disable-dev-shm-usage')
         
-        self.page = ChromiumPage(self.co)
+        # 使用用户指定的浏览器路径
+        browser_path = SettingsPage.get_browser_path()
+        if browser_path and os.path.exists(browser_path):
+            self._log(f"[{self._get_now()}] 使用用户指定的浏览器路径: {browser_path}")
+            self.co.set_browser_path(browser_path)
         
-        # 日志回调函数
-        self.log_callback = log_callback
+        self.page = ChromiumPage(self.co)
 
     def _get_now(self):
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")

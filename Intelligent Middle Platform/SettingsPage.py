@@ -1,7 +1,7 @@
 from typing import Dict
 from PySide6.QtWidgets import (
     QApplication,QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QMessageBox,QTabWidget
+    QLabel, QLineEdit, QPushButton, QMessageBox,QTabWidget, QFileDialog
 )
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QTextEdit # 新增导入
@@ -34,6 +34,8 @@ class SettingsPage(QWidget):
 
 
     SETTINGS_GROUP = "CrawlerSettings"
+    # 独立的存储键名
+    BROWSER_KEY = "Global/BrowserPath"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,6 +45,8 @@ class SettingsPage(QWidget):
 
         # 修改点：嵌套字典结构 { "站点名": { "Cookie名": QLineEdit } }
         self.entry_fields: Dict[str, Dict[str, QLineEdit]] = {}
+        # --- 逻辑独立：定义浏览器路径变量 ---
+        self.browser_path_input = QLineEdit()
 
         self._setup_ui()
         self.load_settings()
@@ -78,6 +82,24 @@ class SettingsPage(QWidget):
         btn_parse.setObjectName("ActionButton")
         btn_parse.clicked.connect(self.parse_json_cookies)
         layout.addWidget(btn_parse)
+
+        layout.addWidget(self.create_separator())
+
+        # 浏览器路径设置
+        layout.addWidget(QLabel("浏览器设置：选择您的浏览器可执行文件路径"))
+        browser_layout = QHBoxLayout()
+        browser_layout.setSpacing(10)
+        
+        self.browser_path_input.setPlaceholderText("例如: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
+        browser_layout.addWidget(self.browser_path_input)
+        
+        btn_browse = QPushButton("浏览")
+        btn_browse.setObjectName("ActionButton")
+        btn_browse.setFixedWidth(80)
+        btn_browse.clicked.connect(self.browse_browser_path)
+        browser_layout.addWidget(btn_browse)
+        
+        layout.addLayout(browser_layout)
 
         layout.addWidget(self.create_separator())
 
@@ -159,7 +181,18 @@ class SettingsPage(QWidget):
             for key, entry in fields.items():
                 val = self.settings.value(f"{site_name}/{key}", "")
                 entry.setText(str(val))
+        # 加载浏览器路径
+        browser_path = self.settings.value(self.BROWSER_KEY, "")
+        self.browser_path_input.setText(str(browser_path))
         self.settings.endGroup()
+
+    def browse_browser_path(self):
+        """打开文件选择对话框选择浏览器可执行文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择浏览器可执行文件", "", "可执行文件 (*.exe)"
+        )
+        if file_path:
+            self.browser_path_input.setText(file_path)
 
     def save_settings(self):
         """按 站点/Key 的路径保存"""
@@ -167,6 +200,8 @@ class SettingsPage(QWidget):
         for site_name, fields in self.entry_fields.items():
             for key, entry in fields.items():
                 self.settings.setValue(f"{site_name}/{key}", entry.text().strip())
+        # 保存浏览器路径
+        self.settings.setValue(self.BROWSER_KEY, self.browser_path_input.text().strip())
         self.settings.endGroup()
         QMessageBox.information(self, "成功", "分站点配置已保存！")
 
@@ -190,3 +225,14 @@ class SettingsPage(QWidget):
 
         settings.endGroup()
         return site_cookies  # 返回这个站点的完整字典
+
+    @staticmethod
+    def get_browser_path() -> str:
+        """
+        获取保存的浏览器路径
+        """
+        settings = QSettings()
+        settings.beginGroup(SettingsPage.SETTINGS_GROUP)
+        browser_path = settings.value(SettingsPage.BROWSER_KEY, "")
+        settings.endGroup()
+        return str(browser_path)

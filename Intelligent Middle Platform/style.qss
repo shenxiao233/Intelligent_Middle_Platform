@@ -116,6 +116,12 @@ QLineEdit:focus, QTextEdit:focus {
 /* ============================================================
    5. 设置页 (SettingsPage) 细节微调
    ============================================================ */
+/* 修复设置页面边框圆角不一致问题 */
+#SettingsScrollArea {
+    border-radius: 20px;
+    background-color: transparent;
+}
+
 /* 统一标题颜色为深沉的灰黑色，不要变紫 */
 #SettingsTitle {
     font-size: 24px;
